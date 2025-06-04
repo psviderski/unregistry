@@ -34,8 +34,10 @@ func TestRegistryPushPull(t *testing.T) {
 					buildOptions.Target = "unregistry-dind"
 				},
 			},
-			Privileged:   true,
-			ExposedPorts: []string{"2375", "5000"},
+			Privileged: true,
+			// Explicitly specify the host port for the registry because if not specified, 'docker push' from Docker
+			// Desktop is unable to reach the automatically mapped one for some reason.
+			ExposedPorts: []string{"2375", "50000:5000"},
 			WaitingFor: wait.ForAll(
 				wait.ForListeningPort("2375"),
 				wait.ForListeningPort("5000"),
