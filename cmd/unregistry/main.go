@@ -23,14 +23,18 @@ func main() {
 		PreRun: func(cmd *cobra.Command, args []string) {
 			bindEnvToFlag(cmd, "addr", "UNREGISTRY_ADDR")
 			bindEnvToFlag(cmd, "log-level", "UNREGISTRY_LOG_LEVEL")
+			bindEnvToFlag(cmd, "sock", "UNREGISTRY_CONTAINERD_SOCK")
+			bindEnvToFlag(cmd, "namespace", "UNREGISTRY_NAMESPACE")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cfg)
 		},
 	}
 
-	cmd.Flags().StringVar(&cfg.HTTPAddr, "addr", ":5000", "HTTP server address")
+	cmd.Flags().StringVarP(&cfg.Addr, "listen", "l", ":5000", "Address to listen on.")
 	cmd.Flags().StringVar(&cfg.LogLevel, "log-level", "info", "Log level (debug, info, warn, error).")
+	cmd.Flags().StringVar(&cfg.ContainerdSock, "sock", "/run/containerd/containerd.sock", "Path to containerd socket.")
+	cmd.Flags().StringVar(&cfg.Namespace, "namespace", "moby", "containerd namespace to use.")
 	//cmd.Flags().String("secret", "", "HTTP secret key")
 
 	if err := cmd.Execute(); err != nil {
@@ -44,7 +48,7 @@ func run(cfg registry.Config) error {
 		return fmt.Errorf("create registry server: %w", err)
 	}
 
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 	go func() {
 		if err := reg.ListenAndServe(); err != nil {
 			errCh <- err
