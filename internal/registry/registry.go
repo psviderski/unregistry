@@ -8,6 +8,8 @@ import (
 	"github.com/distribution/distribution/v3/registry/handlers"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/filesystem"
 	"github.com/sirupsen/logrus"
+	"github.com/uncloud/unregistry/internal/storage/containerd"
+	_ "github.com/uncloud/unregistry/internal/storage/containerd"
 	"net/http"
 )
 
@@ -28,19 +30,27 @@ func NewRegistry(cfg Config) (*Registry, error) {
 	// TODO: expose a flag and env var to configure the log formatter, e.g. JSON one for log aggregators.
 	logrus.SetFormatter(&logrus.TextFormatter{})
 
-	// Create distribution configuration
 	distConfig := &configuration.Configuration{
-		// TODO: replace the storage with containerd one.
 		Storage: configuration.Storage{
 			"filesystem": configuration.Parameters{
-				"rootdirectory": "/var/lib/unregistry",
+				"rootdirectory": "/tmp/registry", // Dummy storage driver
+			},
+		},
+		Middleware: map[string][]configuration.Middleware{
+			"registry": {
+				{
+					Name: containerd.MiddlewareName,
+					Options: configuration.Parameters{
+						"namespace": cfg.ContainerdNamespace,
+						"sock":      cfg.ContainerdSock,
+					},
+				},
 			},
 		},
 	}
-
 	app := handlers.NewApp(context.Background(), distConfig)
 	server := &http.Server{
-		Addr:    cfg.HTTPAddr,
+		Addr:    cfg.Addr,
 		Handler: app,
 	}
 

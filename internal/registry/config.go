@@ -6,8 +6,8 @@ type Config struct {
 	Addr string
 	// ContainerdSock is the path to the containerd.sock socket.
 	ContainerdSock string
-	// Namespace is the containerd namespace to use.
-	Namespace string
-	LogLevel  string
+	// ContainerdNamespace is the containerd namespace to use.
+	ContainerdNamespace string
+	LogLevel            string
 	//HTTPSecret string
 }
