@@ -16,6 +16,8 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o unregistry ./cmd/unregistr
 FROM docker:28.2.2-dind AS unregistry-dind
 
 ENV UNREGISTRY_CONTAINERD_SOCK="/run/docker/containerd/containerd.sock"
+# dind uses 'default' namespace for containerd by default instead of 'moby' used by Docker Engine.
+ENV UNREGISTRY_CONTAINERD_NAMESPACE="default"
 
 COPY scripts/dind-entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --from=builder /build/unregistry /usr/local/bin/
