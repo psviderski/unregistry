@@ -75,6 +75,7 @@ func TestRegistryPushPull(t *testing.T) {
 	defer localCli.Close()
 
 	// This test expects local Docker to use containerd image store: https://docs.docker.com/engine/storage/containerd/
+	// TODO: verify that by inspecting 'docker info'.
 	t.Run(
 		"push single-platform image", func(t *testing.T) {
 			t.Parallel()
@@ -100,7 +101,7 @@ func TestRegistryPushPull(t *testing.T) {
 			require.NoError(t, pushImage(ctx, localCli, registryImage, image.PushOptions{Platform: &ociPlatform}))
 
 			img, _, err := remoteCli.ImageInspectWithRaw(ctx, imageName)
-			require.NoError(t, err)
+			require.NoError(t, err, "Pushed image should appear in the remote Docker.")
 			assert.Equal(t, platformDigest, img.ID, "Image ID should match the platform-specific image digest.")
 		},
 	)
