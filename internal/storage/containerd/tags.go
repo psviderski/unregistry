@@ -41,10 +41,10 @@ func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descript
 	return img.Target, nil
 }
 
-// Tag creates or updates an image tag for the given image descriptor in the containerd image store. The descriptor
-// must be an image/index manifest that is already present in the containerd content store.
-// TODO: investigate why after the lease that uploaded the config manifest is deleted/expired the config content
-// is deleted and not preserved in the content store by the image/manifest reference.
+// Tag creates or updates the image tag in the containerd image store. The descriptor must be an image/index manifest
+// that is already present in the containerd content store.
+// It also sets garbage collection labels on the image content in the containerd content store to prevent it from being
+// deleted by garbage collection.
 func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Descriptor) error {
 	ref, err := reference.WithTag(t.repo, tag)
 	if err != nil {
@@ -55,6 +55,37 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 		Name:   ref.String(),
 		Target: desc,
 	}
+
+	// Just before creating or updating the image in the containerd image store, we need to assign appropriate garbage
+	// collection labels to its content (manifests, config, layers). This is necessary to ensure that the content is not
+	// deleted by GC once the leases that uploaded the content are expired or deleted.
+	// See for more details:
+	// https://github.com/containerd/containerd/blob/main/docs/garbage-collection.md#garbage-collection-labels
+	//
+	// TODO: delete unnecessary leases after setting the GC labels. It seems to be non-trivial to do so, because we need
+	//  to keep track of which leases were used to upload which content and share this info between
+	//  the blobStore/blobWriter and tagService. The downside of keeping them around is the image content will be kept
+	//  in the store even if the image is deleted, until the leases expire (default is leaseExpiration).
+
+	contentStore := t.client.ContentStore()
+	// Get all the children descriptors (manifests, config, layers) for an image index or manifest.
+	childrenHandler := images.ChildrenHandler(contentStore)
+	// Recursively set garbage collection labels on each descriptor for the content of its children to prevent them
+	// from being deleted by GC.
+	setGCLabelsHandler := images.SetChildrenMappedLabels(contentStore, childrenHandler, nil)
+	if err = images.Dispatch(ctx, setGCLabelsHandler, nil, desc); err != nil {
+		return fmt.Errorf(
+			"set garbage collection labels for content of image '%s' in containerd content store: %w", ref.String(),
+			err,
+		)
+	}
+	log := logrus.WithFields(
+		logrus.Fields{
+			"image":      ref.String(),
+			"descriptor": desc,
+		},
+	)
+	log.Debug("Set garbage collection labels for image content in containerd content store.")
 
 	imageService := t.client.ImageService()
 	if _, err = imageService.Create(ctx, img); err != nil {
@@ -67,9 +98,9 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 			return fmt.Errorf("update image '%s' in containerd image store: %w", ref.String(), err)
 		}
 
-		logrus.WithField("image", ref.String()).Debug("Updated existing image in containerd image store.")
+		log.Debug("Updated existing image in containerd image store.")
 	} else {
-		logrus.WithField("image", ref.String()).Debug("Created new image in containerd image store.")
+		log.Debug("Created new image in containerd image store.")
 	}
 
 	return nil
