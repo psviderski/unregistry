@@ -24,7 +24,7 @@ func (n *registry) Scope() distribution.Scope {
 
 // Repository returns an instance of repository for the given name.
 func (n *registry) Repository(_ context.Context, name reference.Named) (distribution.Repository, error) {
-	return newRepository(n.client, name), nil
+	return newRepository(n.client.client, name), nil
 }
 
 // Repositories returns a list of repositories.
@@ -35,6 +35,7 @@ func (n *registry) Repositories(ctx context.Context, repos []string, last string
 }
 
 // Blobs returns a blob enumerator.
+// TODO: return blobStore
 func (n *registry) Blobs() distribution.BlobEnumerator {
 	return &blobEnumerator{
 		client: n.client,
@@ -42,6 +43,7 @@ func (n *registry) Blobs() distribution.BlobEnumerator {
 }
 
 // BlobStatter returns a blob statter.
+// TODO: return blobStore
 func (n *registry) BlobStatter() distribution.BlobStatter {
 	return &blobStatter{
 		client: n.client,
@@ -69,7 +71,8 @@ func (s *blobStatter) Stat(ctx context.Context, dgst digest.Digest) (distributio
 	ctx = s.client.Context(ctx)
 	info, err := s.client.ContentStore().Info(ctx, dgst)
 	if err != nil {
-		return distribution.Descriptor{}, convertError(err)
+		// TODO: use blob store Stat
+		return distribution.Descriptor{}, err
 	}
 
 	return distribution.Descriptor{

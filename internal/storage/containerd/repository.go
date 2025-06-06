@@ -2,18 +2,21 @@ package containerd
 
 import (
 	"context"
+	"github.com/containerd/containerd/v2/client"
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/reference"
 )
 
-// repository implements distribution.Repository backed by containerd image store.
+// repository implements distribution.Repository backed by the containerd content and image stores.
 type repository struct {
-	client    *Client
+	client    *client.Client
 	name      reference.Named
-	blobStore distribution.BlobStore
+	blobStore *blobStore
 }
 
-func newRepository(client *Client, name reference.Named) *repository {
+var _ distribution.Repository = &repository{}
+
+func newRepository(client *client.Client, name reference.Named) *repository {
 	return &repository{
 		client: client,
 		name:   name,
@@ -29,23 +32,22 @@ func (r *repository) Named() reference.Named {
 	return r.name
 }
 
-// Manifests returns the manifest service for the repository.
+// Manifests returns the manifest service for the repository backed by the containerd content store.
 func (r *repository) Manifests(
 	_ context.Context, _ ...distribution.ManifestServiceOption,
 ) (distribution.ManifestService, error) {
 	return &manifestService{
-		client:    r.client,
 		repo:      r.name,
 		blobStore: r.blobStore,
 	}, nil
 }
 
-// Blobs returns the blob store for the repository.
+// Blobs returns the blob store for the repository backed by the containerd content store.
 func (r *repository) Blobs(_ context.Context) distribution.BlobStore {
 	return r.blobStore
 }
 
-// Tags returns the tag service for the repository.
+// Tags returns the tag service for the repository backed by the containerd image store.
 func (r *repository) Tags(_ context.Context) distribution.TagService {
 	return &tagService{
 		client: r.client,
