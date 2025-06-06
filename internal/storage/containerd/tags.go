@@ -3,8 +3,10 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"strings"
 
+	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 	"github.com/distribution/distribution/v3"
@@ -14,20 +16,21 @@ import (
 
 // tagService implements distribution.TagService backed by containerd image store.
 type tagService struct {
-	client *Client
+	client *client.Client
 	repo   reference.Named
 }
 
 // Get retrieves an image descriptor by its tag from the containerd image store.
+// TODO:
 func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descriptor, error) {
-	// Construct the full reference
-	ref := fmt.Sprintf("%s:%s", t.repo.String(), tag)
-
-	// Get the image from containerd
-	img, err := t.client.ImageStore().Get(ctx, ref)
+	ref, err := reference.WithTag(t.repo, tag)
 	if err != nil {
-		// Log for debugging
-		fmt.Printf("DEBUG: tagService.Get failed for ref %s: %v\n", ref, err)
+		return distribution.Descriptor{}, err
+	}
+
+	img, err := t.client.ImageService().Get(ctx, ref.String())
+	if err != nil {
+		logrus.WithField("image", ref.String()).WithError(err).Debug("Failed to get image from containerd image store.")
 		if errdefs.IsNotFound(err) {
 			return distribution.Descriptor{}, distribution.ErrTagUnknown{Tag: tag}
 
@@ -43,9 +46,8 @@ func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descript
 }
 
 // Tag associates a tag with a descriptor.
+// TODO:
 func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Descriptor) error {
-	ctx = t.client.Context(ctx)
-
 	// Construct the full reference
 	ref := fmt.Sprintf("%s:%s", t.repo.String(), tag)
 
@@ -60,10 +62,10 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 	}
 
 	// Try to update first
-	_, err := t.client.ImageStore().Update(ctx, img)
+	_, err := t.client.ImageService().Update(ctx, img)
 	if err != nil {
 		// If update fails, try to create
-		_, err = t.client.ImageStore().Create(ctx, img)
+		_, err = t.client.ImageService().Create(ctx, img)
 		if err != nil {
 			return err
 		}
@@ -73,27 +75,26 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 }
 
 // Untag removes a tag.
+// TODO:
 func (t *tagService) Untag(ctx context.Context, tag string) error {
-	ctx = t.client.Context(ctx)
-
 	// Construct the full reference
 	ref := fmt.Sprintf("%s:%s", t.repo.String(), tag)
 
 	// Delete the image reference
-	err := t.client.ImageStore().Delete(ctx, ref)
+	err := t.client.ImageService().Delete(ctx, ref)
 	if err != nil {
-		return convertError(err)
+		// TODO: convert error if possible
+		return err
 	}
 
 	return nil
 }
 
 // All returns all tags for the repository.
+// TODO:
 func (t *tagService) All(ctx context.Context) ([]string, error) {
-	ctx = t.client.Context(ctx)
-
 	// List all images
-	images, err := t.client.ImageStore().List(ctx)
+	images, err := t.client.ImageService().List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +115,10 @@ func (t *tagService) All(ctx context.Context) ([]string, error) {
 }
 
 // Lookup finds tags associated with a descriptor.
+// TODO
 func (t *tagService) Lookup(ctx context.Context, desc distribution.Descriptor) ([]string, error) {
-	ctx = t.client.Context(ctx)
-
 	// List all images
-	images, err := t.client.ImageStore().List(ctx)
+	images, err := t.client.ImageService().List(ctx)
 	if err != nil {
 		return nil, err
 	}
