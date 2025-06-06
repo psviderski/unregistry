@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,9 @@ func TestRegistryPushPull(t *testing.T) {
 					buildOptions.Target = "unregistry-dind"
 				},
 			},
+			Env: map[string]string{
+				"UNREGISTRY_LOG_LEVEL": "debug",
+			},
 			Privileged: true,
 			// Explicitly specify the host port for the registry because if not specified, 'docker push' from Docker
 			// Desktop is unable to reach the automatically mapped one for some reason.
@@ -50,6 +54,31 @@ func TestRegistryPushPull(t *testing.T) {
 
 	t.Cleanup(
 		func() {
+			// Print last 20 lines of unregistry container logs.
+			logs, err := unregistryContainer.Logs(ctx)
+			assert.NoError(t, err, "Failed to get logs from unregistry container.")
+			if err == nil {
+				defer logs.Close()
+				logsContent, err := io.ReadAll(logs)
+				assert.NoError(t, err, "Failed to read logs from unregistry container.")
+				if err == nil {
+
+					lines := strings.Split(string(logsContent), "\n")
+					start := len(lines) - 20
+					if start < 0 {
+						start = 0
+					}
+
+					t.Log("=== Last 20 lines of unregistry container logs ===")
+					for i := start; i < len(lines); i++ {
+						if lines[i] != "" {
+							t.Log(lines[i])
+						}
+					}
+					t.Log("=== End of unregistry container logs ===")
+				}
+			}
+
 			// Ensure the container is terminated after the test.
 			assert.NoError(t, unregistryContainer.Terminate(ctx))
 		},
@@ -115,6 +144,8 @@ func TestRegistryPushPull(t *testing.T) {
 	//		platforms := []string{"linux/amd64", "linux/arm64", "linux/arm/v7"}
 	//	},
 	//)
+
+	// TODO: test pushing an image with digest.
 }
 
 func pullImage(ctx context.Context, cli *client.Client, imageName string, opts image.PullOptions) error {
