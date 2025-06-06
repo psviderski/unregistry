@@ -99,8 +99,11 @@ func (bw *blobWriter) Size() int64 {
 // ReadFrom reads from the provided reader and writes to the containerd blob writer.
 func (bw *blobWriter) ReadFrom(r io.Reader) (int64, error) {
 	n, err := io.Copy(bw.writer, r)
+	if err != nil {
+		err = fmt.Errorf("copy data to containerd blob writer: %w", err)
+	}
 	bw.size += n
-	bw.log.WithField("size", n).Debug("Copied data to containerd blob writer.")
+	bw.log.WithField("size", n).WithError(err).Debug("Copied data to containerd blob writer.")
 
 	return n, err
 }
@@ -108,8 +111,11 @@ func (bw *blobWriter) ReadFrom(r io.Reader) (int64, error) {
 // Write writes data to the containerd blob writer.
 func (bw *blobWriter) Write(data []byte) (int, error) {
 	n, err := bw.writer.Write(data)
+	if err != nil {
+		err = fmt.Errorf("write data to containerd blob writer: %w", err)
+	}
 	bw.size += int64(n)
-	bw.log.WithField("size", n).Debug("Wrote data to containerd blob writer.")
+	bw.log.WithField("size", n).WithError(err).Debug("Wrote data to containerd blob writer.")
 
 	return n, err
 }
