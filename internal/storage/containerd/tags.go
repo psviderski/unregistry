@@ -11,17 +11,15 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/reference"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// tagService implements distribution.TagService backed by containerd image store.
+// tagService implements distribution.TagService backed by the containerd image store.
 type tagService struct {
 	client *client.Client
 	repo   reference.Named
 }
 
 // Get retrieves an image descriptor by its tag from the containerd image store.
-// TODO:
 func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descriptor, error) {
 	ref, err := reference.WithTag(t.repo, tag)
 	if err != nil {
@@ -35,40 +33,43 @@ func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descript
 			return distribution.Descriptor{}, distribution.ErrTagUnknown{Tag: tag}
 
 		}
-		return distribution.Descriptor{}, err
+		return distribution.Descriptor{}, fmt.Errorf(
+			"get image '%s' from containerd image store: %w", ref.String(), err,
+		)
 	}
 
-	return distribution.Descriptor{
-		MediaType: img.Target.MediaType,
-		Digest:    img.Target.Digest,
-		Size:      img.Target.Size,
-	}, nil
+	return img.Target, nil
 }
 
-// Tag associates a tag with a descriptor.
-// TODO:
+// Tag creates or updates an image tag for the given image descriptor in the containerd image store. The descriptor
+// must be an image/index manifest that is already present in the containerd content store.
+// TODO: investigate why after the lease that uploaded the config manifest is deleted/expired the config content
+// is deleted and not preserved in the content store by the image/manifest reference.
 func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Descriptor) error {
-	// Construct the full reference
-	ref := fmt.Sprintf("%s:%s", t.repo.String(), tag)
-
-	// Create or update the image
-	img := images.Image{
-		Name: ref,
-		Target: ocispec.Descriptor{
-			MediaType: desc.MediaType,
-			Digest:    desc.Digest,
-			Size:      desc.Size,
-		},
+	ref, err := reference.WithTag(t.repo, tag)
+	if err != nil {
+		return err
 	}
 
-	// Try to update first
-	_, err := t.client.ImageService().Update(ctx, img)
-	if err != nil {
-		// If update fails, try to create
-		_, err = t.client.ImageService().Create(ctx, img)
-		if err != nil {
-			return err
+	img := images.Image{
+		Name:   ref.String(),
+		Target: desc,
+	}
+
+	imageService := t.client.ImageService()
+	if _, err = imageService.Create(ctx, img); err != nil {
+		if !errdefs.IsAlreadyExists(err) {
+			return fmt.Errorf("create image '%s' in containerd image store: %w", ref.String(), err)
 		}
+
+		_, err = imageService.Update(ctx, img)
+		if err != nil {
+			return fmt.Errorf("update image '%s' in containerd image store: %w", ref.String(), err)
+		}
+
+		logrus.WithField("image", ref.String()).Debug("Updated existing image in containerd image store.")
+	} else {
+		logrus.WithField("image", ref.String()).Debug("Created new image in containerd image store.")
 	}
 
 	return nil

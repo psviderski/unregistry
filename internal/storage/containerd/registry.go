@@ -24,7 +24,11 @@ func (n *registry) Scope() distribution.Scope {
 
 // Repository returns an instance of repository for the given name.
 func (n *registry) Repository(_ context.Context, name reference.Named) (distribution.Repository, error) {
-	return newRepository(n.client.client, name), nil
+	canonicalName, err := reference.ParseNormalizedNamed(name.String())
+	if err != nil {
+		return nil, err
+	}
+	return newRepository(n.client.client, canonicalName), nil
 }
 
 // Repositories returns a list of repositories.
