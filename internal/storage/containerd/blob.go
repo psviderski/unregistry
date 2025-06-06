@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/content"
-	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/errdefs"
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/reference"
@@ -18,7 +18,7 @@ import (
 
 // blobStore implements distribution.BlobStore backed by containerd image store.
 type blobStore struct {
-	client *Client
+	client *client.Client
 	repo   reference.Named
 }
 
@@ -57,12 +57,12 @@ func (b *blobStore) Get(ctx context.Context, dgst digest.Digest) ([]byte, error)
 }
 
 // Open returns a reader for the blob.
+// TODO
 func (b *blobStore) Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error) {
-	ctx = b.client.Context(ctx)
-
 	reader, err := b.client.ContentStore().ReaderAt(ctx, ocispec.Descriptor{Digest: dgst})
 	if err != nil {
-		return nil, convertError(err)
+		// TODO: convert err if possible
+		return nil, err
 	}
 
 	// Wrap the ReaderAt as a ReadSeekCloser
@@ -73,65 +73,48 @@ func (b *blobStore) Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCl
 	}, nil
 }
 
-// Put stores a blob.
-// TODO: implement blob storage as one request
-func (b *blobStore) Put(ctx context.Context, mediaType string, p []byte) (distribution.Descriptor, error) {
-	ctx = b.client.Context(ctx)
-
-	dgst := digest.FromBytes(p)
-
-	// Create a lease to prevent garbage collection
-	lease, err := b.client.LeasesService().Create(ctx, leases.WithRandomID())
+// Put stores a blob in the containerd content store with the given media type. If the blob already exists,
+// it will return the existing descriptor without re-uploading the content. It should be used for small objects,
+// such as manifests.
+func (b *blobStore) Put(ctx context.Context, mediaType string, blob []byte) (distribution.Descriptor, error) {
+	writer, err := newBlobWriter(ctx, b.client, b.repo, "")
 	if err != nil {
-		return distribution.Descriptor{}, fmt.Errorf("failed to create lease: %w", err)
+		return distribution.Descriptor{}, err
 	}
-	defer b.client.LeasesService().Delete(ctx, lease)
-
-	// Write the blob
-	ref := fmt.Sprintf("%s@%s", b.repo.String(), dgst)
-	writer, err := b.client.ContentStore().Writer(
-		ctx,
-		content.WithRef(ref),
-		content.WithDescriptor(
-			ocispec.Descriptor{
-				MediaType: mediaType,
-				Digest:    dgst,
-				Size:      int64(len(p)),
-			},
-		),
-	)
-	if err != nil {
-		return distribution.Descriptor{}, fmt.Errorf("failed to create writer: %w", err)
-	}
-
-	if _, err := writer.Write(p); err != nil {
-		writer.Close()
-		return distribution.Descriptor{}, fmt.Errorf("failed to write blob: %w", err)
-	}
-
-	if err := writer.Commit(ctx, 0, dgst); err != nil {
-		if !errdefs.IsAlreadyExists(err) {
-			return distribution.Descriptor{}, fmt.Errorf("failed to commit blob: %w", err)
+	defer func() {
+		if err != nil {
+			// Clean up resources occupied by the writer if an error occurs.
+			_ = writer.Cancel(ctx)
 		}
+		writer.Close()
+	}()
+
+	if _, err = writer.Write(blob); err != nil {
+		return distribution.Descriptor{}, err
 	}
 
-	return distribution.Descriptor{
+	desc := distribution.Descriptor{
 		MediaType: mediaType,
-		Digest:    dgst,
-		Size:      int64(len(p)),
-	}, nil
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	if desc, err = writer.Commit(ctx, desc); err != nil {
+		return distribution.Descriptor{}, err
+	}
+
+	return desc, nil
 }
 
 // Create creates a blob writer to add a blob to the containerd content store.`
 func (b *blobStore) Create(ctx context.Context, _ ...distribution.BlobCreateOption) (
 	distribution.BlobWriter, error,
 ) {
-	return newBlobWriter(ctx, b.client.client, b.repo, "")
+	return newBlobWriter(ctx, b.client, b.repo, "")
 }
 
 // Resume creates a blob writer for resuming an upload with a specific ID.
 func (b *blobStore) Resume(ctx context.Context, id string) (distribution.BlobWriter, error) {
-	return newBlobWriter(ctx, b.client.client, b.repo, id)
+	return newBlobWriter(ctx, b.client, b.repo, id)
 }
 
 // Mount is not supported for simplicity.
@@ -144,9 +127,8 @@ func (b *blobStore) Mount(ctx context.Context, sourceRepo reference.Named, dgst 
 }
 
 // ServeBlob serves the blob over HTTP.
+// TODO
 func (b *blobStore) ServeBlob(ctx context.Context, w http.ResponseWriter, r *http.Request, dgst digest.Digest) error {
-	ctx = b.client.Context(ctx)
-
 	reader, err := b.Open(ctx, dgst)
 	if err != nil {
 		return err
