@@ -37,6 +37,12 @@ func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descript
 			"get image '%s' from containerd image store: %w", ref.String(), err,
 		)
 	}
+	logrus.WithFields(
+		logrus.Fields{
+			"image":      ref.String(),
+			"descriptor": img.Target,
+		},
+	).Debug("Got image from containerd image store.")
 
 	return img.Target, nil
 }

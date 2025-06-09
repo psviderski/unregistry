@@ -103,35 +103,110 @@ func TestRegistryPushPull(t *testing.T) {
 	require.NoError(t, err)
 	defer localCli.Close()
 
-	// This test expects local Docker to use containerd image store: https://docs.docker.com/engine/storage/containerd/
-	// TODO: verify that by inspecting 'docker info'.
+	// Check if local Docker uses containerd image store: https://docs.docker.com/engine/storage/containerd/
+	info, err := localCli.Info(ctx)
+	require.NoError(t, err)
+	localDockerUsesContainerdImageStore := strings.Contains(
+		fmt.Sprintf("%s", info.DriverStatus), "containerd.snapshotter",
+	)
+
 	t.Run(
-		"push single-platform image", func(t *testing.T) {
+		"push/pull single-platform image", func(t *testing.T) {
 			t.Parallel()
 
 			imageName := "busybox:1.37.0-musl"
 			registryImage := fmt.Sprintf("%s/%s", registryAddr, imageName)
 			platform := "linux/amd64"
 			ociPlatform := ocispec.Platform{Architecture: "amd64", OS: "linux"}
+			indexDigest := "sha256:597bf7e5e8faf26b8efc4cb558eea5dc14d9cc97d5b4c8cdbe6404a7432d5a67"
 			platformDigest := "sha256:008f65c96291274170bec5cf01b2de06dc049dc9d8f9bfb633520497875ed2c1"
+			// Local image digest for the platform when *not* using containerd image store.
+			dockerLocalDigest := "sha256:7da29d4d35b82e4412a41afd99398c64cc94d58fb5a701c73c684ed22201a14b"
+			// Manifest digest created by 'docker push' when *not* using containerd image store.
+			dockerDistribDigest := "sha256:f6e9a69f79d3bb745090d8bcd1d17ed24c1993d013d7b5b536fb7d0b61018ad7"
 
 			t.Cleanup(
 				func() {
 					for _, img := range []string{imageName, registryImage} {
 						_, err := localCli.ImageRemove(ctx, img, image.RemoveOptions{PruneChildren: true})
-						assert.NoError(t, err)
+						if !client.IsErrNotFound(err) {
+							assert.NoError(t, err)
+						}
 					}
 				},
 			)
 
-			require.NoError(t, pullImage(ctx, localCli, imageName, image.PullOptions{Platform: platform}))
+			require.NoError(
+				t, pullImage(ctx, localCli, imageName, image.PullOptions{Platform: platform}),
+				"Failed to pull image '%s' locally", imageName,
+			)
+			img, _, err := localCli.ImageInspectWithRaw(ctx, imageName)
+			require.NoError(t, err, "Failed to inspect image '%s' locally", imageName)
+			if localDockerUsesContainerdImageStore {
+				require.Equal(t, indexDigest, img.ID, "Image ID should match OCI index digest")
+			} else {
+				require.Equal(t, dockerLocalDigest, img.ID, "Image ID should match local Docker image digest")
+			}
 
-			require.NoError(t, localCli.ImageTag(ctx, imageName, registryImage))
-			require.NoError(t, pushImage(ctx, localCli, registryImage, image.PushOptions{Platform: &ociPlatform}))
+			// Tag and push the image to unregistry.
+			require.NoError(
+				t, localCli.ImageTag(ctx, imageName, registryImage), "Failed to tag image '%s' as '%s' locally",
+				imageName,
+				registryImage,
+			)
+			require.NoError(
+				t, pushImage(ctx, localCli, registryImage, image.PushOptions{Platform: &ociPlatform}),
+				"Failed to push image '%s' to unregistry", registryImage,
+			)
 
-			img, _, err := remoteCli.ImageInspectWithRaw(ctx, imageName)
-			require.NoError(t, err, "Pushed image should appear in the remote Docker.")
-			assert.Equal(t, platformDigest, img.ID, "Image ID should match the platform-specific image digest.")
+			img, _, err = remoteCli.ImageInspectWithRaw(ctx, imageName)
+			require.NoError(t, err, "Pushed image should appear in the remote Docker")
+			if localDockerUsesContainerdImageStore {
+				assert.Equal(t, platformDigest, img.ID, "Image ID should match platform-specific image digest")
+			} else {
+				assert.Equal(t, dockerDistribDigest, img.ID, "Image ID should match Docker distribution digest")
+			}
+
+			// Remove the image locally before pulling it back.
+			for _, img := range []string{imageName, registryImage} {
+				_, err = localCli.ImageRemove(ctx, img, image.RemoveOptions{PruneChildren: true})
+				require.NoError(t, err, "Failed to remove image '%s' locally", img)
+			}
+
+			// Pull the image back from unregistry.
+			require.NoError(
+				t, pullImage(ctx, localCli, registryImage, image.PullOptions{Platform: platform}),
+				"Failed to pull image '%s' from unregistry", registryImage,
+			)
+			img, _, err = localCli.ImageInspectWithRaw(ctx, registryImage)
+			require.NoError(t, err)
+			if localDockerUsesContainerdImageStore {
+				assert.Equal(t, platformDigest, img.ID, "Pulled image ID should match platform-specific image digest")
+			} else {
+				assert.Equal(t, dockerLocalDigest, img.ID, "Pulled image ID should match local Docker image digest")
+			}
+
+			// Remove the image locally again to test pulling it with arbitrary platform.
+			_, err = localCli.ImageRemove(ctx, registryImage, image.RemoveOptions{PruneChildren: true})
+			require.NoError(t, err, "Failed to remove image '%s' locally", img)
+
+			// This is a bit weird, but it's the default behavior of the distribution registry.
+			require.NoError(
+				t, pullImage(ctx, localCli, registryImage, image.PullOptions{Platform: "linux/any-platform"}),
+				"Pulling arbitrary platform should pull the existing platform-specific image",
+			)
+
+			img, _, err = localCli.ImageInspectWithRaw(ctx, registryImage)
+			require.NoError(t, err)
+			if localDockerUsesContainerdImageStore {
+				assert.Equal(
+					t, platformDigest, img.ID, "Arbitrary platform pull should match platform-specific image digest",
+				)
+			} else {
+				assert.Equal(
+					t, dockerLocalDigest, img.ID, "Arbitrary platform pull should match local Docker image digest",
+				)
+			}
 		},
 	)
 

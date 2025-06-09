@@ -63,13 +63,19 @@ func newBlobWriter(
 		return nil, fmt.Errorf("create containerd content writer: %w", err)
 	}
 
+	// Get the status of the writer to get the written offset (size) if the writer was resumed.
+	status, err := writer.Status()
+	if err != nil {
+		return nil, fmt.Errorf("get containerd content writer status: %w", err)
+	}
+
 	log := logrus.WithFields(
 		logrus.Fields{
 			"writer.id": id,
 			"repo":      repo.Name(),
 		},
 	)
-	log.Debug("Created new containerd blob writer.")
+	log.WithField("size", status.Offset).Debug("Created new containerd blob writer.")
 
 	return &blobWriter{
 		client: client,
@@ -77,6 +83,7 @@ func newBlobWriter(
 		id:     id,
 		lease:  lease,
 		writer: writer,
+		size:   status.Offset,
 		log:    log,
 	}, nil
 }
