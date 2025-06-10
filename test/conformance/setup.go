@@ -171,7 +171,7 @@ var (
 	Version                            = "unknown"
 )
 
-func init() {
+func setup() {
 	var err error
 
 	seed = g.GinkgoRandomSeed()
