@@ -2,6 +2,7 @@ package containerd
 
 import (
 	"context"
+
 	"github.com/containerd/containerd/v2/client"
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/reference"
@@ -49,8 +50,10 @@ func (r *repository) Blobs(_ context.Context) distribution.BlobStore {
 
 // Tags returns the tag service for the repository backed by the containerd image store.
 func (r *repository) Tags(_ context.Context) distribution.TagService {
+	// Shouldn't return an error as r.name is a valid reference.
+	canonicalRepo, _ := reference.ParseNormalizedNamed(r.name.String())
 	return &tagService{
-		client: r.client,
-		repo:   r.name,
+		client:        r.client,
+		canonicalRepo: canonicalRepo,
 	}
 }

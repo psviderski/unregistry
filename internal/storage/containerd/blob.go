@@ -121,8 +121,8 @@ func (b *blobStore) Resume(ctx context.Context, id string) (distribution.BlobWri
 func (b *blobStore) Mount(ctx context.Context, sourceRepo reference.Named, dgst digest.Digest) (
 	distribution.Descriptor, error,
 ) {
-	// We could implement cross-repository mounting here by checking if the blob exists
-	// and creating a reference to it, but for now we'll keep it simple.
+	// We could implement cross-repository mounting here by checking if the blob exists and returning its descriptor.
+	// The content in containerd is not repository-namespaced. But for now we'll keep it simple.
 	return distribution.Descriptor{}, distribution.ErrUnsupported
 }
 

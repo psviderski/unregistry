@@ -3,8 +3,9 @@ package containerd
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/images"
@@ -15,15 +16,18 @@ import (
 
 // tagService implements distribution.TagService backed by the containerd image store.
 type tagService struct {
-	client *client.Client
-	repo   reference.Named
+	client        *client.Client
+	canonicalRepo reference.Named
 }
 
 // Get retrieves an image descriptor by its tag from the containerd image store.
 func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descriptor, error) {
-	ref, err := reference.WithTag(t.repo, tag)
+	ref, err := reference.WithTag(t.canonicalRepo, tag)
 	if err != nil {
-		return distribution.Descriptor{}, err
+		return distribution.Descriptor{}, distribution.ErrManifestUnknown{
+			Name: t.canonicalRepo.Name(),
+			Tag:  tag,
+		}
 	}
 
 	img, err := t.client.ImageService().Get(ctx, ref.String())
@@ -52,7 +56,7 @@ func (t *tagService) Get(ctx context.Context, tag string) (distribution.Descript
 // It also sets garbage collection labels on the image content in the containerd content store to prevent it from being
 // deleted by garbage collection.
 func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Descriptor) error {
-	ref, err := reference.WithTag(t.repo, tag)
+	ref, err := reference.WithTag(t.canonicalRepo, tag)
 	if err != nil {
 		return err
 	}
@@ -116,7 +120,7 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 // TODO:
 func (t *tagService) Untag(ctx context.Context, tag string) error {
 	// Construct the full reference
-	ref := fmt.Sprintf("%s:%s", t.repo.String(), tag)
+	ref := fmt.Sprintf("%s:%s", t.canonicalRepo.String(), tag)
 
 	// Delete the image reference
 	err := t.client.ImageService().Delete(ctx, ref)
@@ -138,7 +142,7 @@ func (t *tagService) All(ctx context.Context) ([]string, error) {
 	}
 
 	// Filter by repository name
-	repoName := t.repo.String()
+	repoName := t.canonicalRepo.String()
 	var tags []string
 
 	for _, img := range images {
@@ -162,7 +166,7 @@ func (t *tagService) Lookup(ctx context.Context, desc distribution.Descriptor) (
 	}
 
 	// Find tags that point to this descriptor
-	repoName := t.repo.String()
+	repoName := t.canonicalRepo.String()
 	var tags []string
 
 	for _, img := range images {
