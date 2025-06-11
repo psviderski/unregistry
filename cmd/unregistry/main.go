@@ -16,26 +16,43 @@ import (
 func main() {
 	var cfg registry.Config
 	cmd := &cobra.Command{
-		Use:           "unregistry",
-		Short:         "A container registry backed by the local Docker/containerd image store.",
+		Use:   "unregistry",
+		Short: "A container registry that uses local Docker/containerd for storing images.",
+		Long: `Unregistry is a lightweight OCI-compliant container registry that uses the local Docker (containerd)
+image store as its backend. It provides a standard registry API interface for pushing and pulling
+container images without requiring a separate storage backend.
+
+Key use cases:
+- Push built images straight to remote servers without an external registry such as Docker Hub
+  as intermediary
+- Pull images once and serve them to multiple nodes in a cluster environment
+- Distribute images in air-gapped environments
+- Development and testing workflows that need a local registry
+- Expose pre-loaded images through a standard registry API`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			bindEnvToFlag(cmd, "addr", "UNREGISTRY_ADDR")
+			bindEnvToFlag(cmd, "log-format", "UNREGISTRY_LOG_FORMAT")
 			bindEnvToFlag(cmd, "log-level", "UNREGISTRY_LOG_LEVEL")
 			bindEnvToFlag(cmd, "namespace", "UNREGISTRY_CONTAINERD_NAMESPACE")
-			bindEnvToFlag(cmd, "sock", "UNREGISTRY_CONTAINERD_SOCK")
+			bindEnvToFlag(cmd, "socket", "UNREGISTRY_CONTAINERD_SOCK")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cfg)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cfg.Addr, "listen", "l", ":5000", "Address to listen on.")
-	cmd.Flags().StringVar(&cfg.LogLevel, "log-level", "info", "Log level (debug, info, warn, error).")
-	cmd.Flags().StringVar(&cfg.ContainerdNamespace, "namespace", "moby", "containerd namespace to use.")
-	cmd.Flags().StringVar(&cfg.ContainerdSock, "sock", "/run/containerd/containerd.sock", "Path to containerd socket.")
-	//cmd.Flags().String("secret", "", "HTTP secret key")
+	cmd.Flags().StringVarP(&cfg.Addr, "addr", "a", ":5000",
+		"Address and port to listen on (e.g., 0.0.0.0:5000)")
+	cmd.Flags().StringVarP(&cfg.LogFormatter, "log-format", "f", "text",
+		"Log output format (text or json)")
+	cmd.Flags().StringVarP(&cfg.LogLevel, "log-level", "l", "info",
+		"Log verbosity level (debug, info, warn, error)")
+	cmd.Flags().StringVarP(&cfg.ContainerdNamespace, "namespace", "n", "moby",
+		"Containerd namespace to use for image storage")
+	cmd.Flags().StringVarP(&cfg.ContainerdSock, "sock", "s", "/run/containerd/containerd.sock",
+		"Path to containerd socket file")
 
 	if err := cmd.Execute(); err != nil {
 		logrus.WithError(err).Fatal("Registry server failed.")

@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+
 	"github.com/distribution/distribution/v3/configuration"
 	"github.com/distribution/distribution/v3/registry/handlers"
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/filesystem"
 	"github.com/sirupsen/logrus"
 	"github.com/uncloud/unregistry/internal/storage/containerd"
 	_ "github.com/uncloud/unregistry/internal/storage/containerd"
-	"net/http"
 )
 
 // Registry represents a complete instance of the registry.
@@ -27,8 +28,15 @@ func NewRegistry(cfg Config) (*Registry, error) {
 		return nil, fmt.Errorf("invalid log level: %w", err)
 	}
 	logrus.SetLevel(level)
-	// TODO: expose a flag and env var to configure the log formatter, e.g. JSON one for log aggregators.
-	logrus.SetFormatter(&logrus.TextFormatter{})
+
+	switch cfg.LogFormatter {
+	case "json":
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+	case "text":
+		logrus.SetFormatter(&logrus.TextFormatter{})
+	default:
+		return nil, fmt.Errorf("invalid log formatter: '%s'; expected 'json' or 'text'", cfg.LogFormatter)
+	}
 
 	distConfig := &configuration.Configuration{
 		Storage: configuration.Storage{
