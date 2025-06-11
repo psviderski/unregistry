@@ -422,6 +422,51 @@ func TestRegistryPushPull(t *testing.T) {
 		assert.Contains(t, err.Error(), "not found", "Pulling missing platform '%s' should fail with 'not found'")
 	})
 
+	t.Run("docker push/pull image with external registry prefix", func(t *testing.T) {
+		t.Parallel()
+
+		imageName := "ghcr.io/containerd/busybox:1.36"
+		registryImage := fmt.Sprintf("%s/%s", registryAddr, imageName)
+
+		t.Cleanup(
+			func() {
+				for _, img := range []string{imageName, registryImage} {
+					_, err := localCli.ImageRemove(ctx, img, image.RemoveOptions{PruneChildren: true})
+					if !client.IsErrNotFound(err) {
+						assert.NoError(t, err)
+					}
+				}
+				_, err = remoteCli.ImageRemove(ctx, imageName, image.RemoveOptions{PruneChildren: true})
+				if !client.IsErrNotFound(err) {
+					assert.NoError(t, err)
+				}
+			},
+		)
+
+		require.NoError(t, pullImage(ctx, localCli, imageName, image.PullOptions{}),
+			"Failed to pull image '%s' locally", imageName)
+
+		// Tag the image with external registry prefix and push it to unregistry.
+		require.NoError(t, localCli.ImageTag(ctx, imageName, registryImage),
+			"Failed to tag image '%s' as '%s' locally", imageName, registryImage)
+		_, err := pushImage(ctx, localCli, registryImage, image.PushOptions{})
+		require.NoError(t, err, "Failed to push image '%s' to unregistry", registryImage)
+
+		// Verify the image appears in remote Docker with the external registry prefix.
+		_, _, err = remoteCli.ImageInspectWithRaw(ctx, imageName)
+		require.NoError(t, err, "Pushed image should appear in remote Docker with external registry prefix")
+
+		// Remove the image locally before pulling it back.
+		for _, img := range []string{imageName, registryImage} {
+			_, err = localCli.ImageRemove(ctx, img, image.RemoveOptions{PruneChildren: true})
+			require.NoError(t, err, "Failed to remove image '%s' locally", img)
+		}
+
+		// Pull the image back from unregistry using the full path with external prefix.
+		require.NoError(t, pullImage(ctx, localCli, registryImage, image.PullOptions{}),
+			"Failed to pull image '%s' from unregistry", registryImage)
+	})
+
 	tarballImageTests := []struct {
 		name            string
 		tarPath         string

@@ -118,11 +118,13 @@ func (b *blobStore) Resume(ctx context.Context, id string) (distribution.BlobWri
 }
 
 // Mount is not supported for simplicity.
+// We could implement cross-repository mounting here by checking if the blob exists and returning its descriptor.
+// However, the content in containerd is not repository-namespaced so checking if a blob exists in a new repository
+// will return true if it exists in the content store, regardless of the repository. Given that, we don't really
+// need the mount operation in this implementation.
 func (b *blobStore) Mount(ctx context.Context, sourceRepo reference.Named, dgst digest.Digest) (
 	distribution.Descriptor, error,
 ) {
-	// We could implement cross-repository mounting here by checking if the blob exists and returning its descriptor.
-	// The content in containerd is not repository-namespaced. But for now we'll keep it simple.
 	return distribution.Descriptor{}, distribution.ErrUnsupported
 }
 
