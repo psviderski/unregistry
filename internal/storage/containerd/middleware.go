@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/containerd/containerd/v2/client"
 	"github.com/distribution/distribution/v3"
 	middleware "github.com/distribution/distribution/v3/registry/middleware/registry"
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
@@ -34,12 +35,10 @@ func registryMiddleware(
 		return nil, fmt.Errorf("containerd namespace is required")
 	}
 
-	// TODO: create regular containerd Client instead of using the custom one.
-	// Create containerd client
-	client, err := NewClient(sock, namespace)
+	cli, err := client.New(sock, client.WithDefaultNamespace(namespace))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create containerd client: %w", err)
+		return nil, fmt.Errorf("create containerd client: %w", err)
 	}
 
-	return &registry{client: client}, nil
+	return &registry{client: cli}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/manifest/manifestlist"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
@@ -103,7 +104,5 @@ func unmarshalManifest(blob []byte) (distribution.Manifest, error) {
 		return &manifestList, nil
 	}
 
-	// TODO: handle oci index? Use distribution.UnmarshalManifest + basic unmarshal to get the media type from blob?
-
-	return nil, fmt.Errorf("unknown manifest format")
+	return nil, distribution.ErrManifestVerification{errors.New("unknown manifest format")}
 }

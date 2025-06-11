@@ -3,7 +3,6 @@ package containerd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -16,7 +15,9 @@ import (
 
 // tagService implements distribution.TagService backed by the containerd image store.
 type tagService struct {
-	client        *client.Client
+	client *client.Client
+	// canonicalRepo is the repository reference in a normalized form, the way containerd image store expects it,
+	// for example, "docker.io/library/ubuntu"
 	canonicalRepo reference.Named
 }
 
@@ -116,66 +117,18 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 	return nil
 }
 
-// Untag removes a tag.
-// TODO:
+// Untag is not supported for simplicity.
+// An image could be untagged by deleting the image in containerd.
 func (t *tagService) Untag(ctx context.Context, tag string) error {
-	// Construct the full reference
-	ref := fmt.Sprintf("%s:%s", t.canonicalRepo.String(), tag)
-
-	// Delete the image reference
-	err := t.client.ImageService().Delete(ctx, ref)
-	if err != nil {
-		// TODO: convert error if possible
-		return err
-	}
-
-	return nil
+	return distribution.ErrUnsupported
 }
 
-// All returns all tags for the repository.
-// TODO:
+// All should return all tags associated with the repository but discovery operations are not supported for simplicity.
 func (t *tagService) All(ctx context.Context) ([]string, error) {
-	// List all images
-	images, err := t.client.ImageService().List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter by repository name
-	repoName := t.canonicalRepo.String()
-	var tags []string
-
-	for _, img := range images {
-		// Check if the image belongs to this repository
-		if strings.HasPrefix(img.Name, repoName+":") {
-			tag := strings.TrimPrefix(img.Name, repoName+":")
-			tags = append(tags, tag)
-		}
-	}
-
-	return tags, nil
+	return nil, distribution.ErrUnsupported
 }
 
-// Lookup finds tags associated with a descriptor.
-// TODO
+// Lookup should find tags associated with a descriptor but discovery operations are not supported for simplicity.
 func (t *tagService) Lookup(ctx context.Context, desc distribution.Descriptor) ([]string, error) {
-	// List all images
-	images, err := t.client.ImageService().List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find tags that point to this descriptor
-	repoName := t.canonicalRepo.String()
-	var tags []string
-
-	for _, img := range images {
-		// Check if the image belongs to this repository and has the same digest
-		if strings.HasPrefix(img.Name, repoName+":") && img.Target.Digest == desc.Digest {
-			tag := strings.TrimPrefix(img.Name, repoName+":")
-			tags = append(tags, tag)
-		}
-	}
-
-	return tags, nil
+	return nil, distribution.ErrUnsupported
 }

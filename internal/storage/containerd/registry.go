@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 
+	"github.com/containerd/containerd/v2/client"
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/reference"
 	"github.com/opencontainers/go-digest"
@@ -10,74 +11,46 @@ import (
 
 // registry implements distribution.Namespace backed by containerd image store.
 type registry struct {
-	// TODO: change to regular containerd Client.
-	client *Client
+	client *client.Client
 }
 
 // Ensure registry implements distribution.registry.
 var _ distribution.Namespace = &registry{}
 
 // Scope returns the global scope for this registry.
-func (n *registry) Scope() distribution.Scope {
+func (r *registry) Scope() distribution.Scope {
 	return distribution.GlobalScope
 }
 
 // Repository returns an instance of repository for the given name.
-func (n *registry) Repository(_ context.Context, name reference.Named) (distribution.Repository, error) {
-	return newRepository(n.client.client, name), nil
+func (r *registry) Repository(_ context.Context, name reference.Named) (distribution.Repository, error) {
+	return newRepository(r.client, name), nil
 }
 
-// Repositories returns a list of repositories.
-func (n *registry) Repositories(ctx context.Context, repos []string, last string) (int, error) {
-	// For now, we don't support listing repositories.
-	// This would require iterating through all images in containerd and extracting unique repository names.
+// Repositories should return a list of repositories in the registry but it's not supported for simplicity.
+func (r *registry) Repositories(_ context.Context, _ []string, _ string) (int, error) {
 	return 0, distribution.ErrUnsupported
 }
 
-// Blobs returns a blob enumerator.
-// TODO: return blobStore
-func (n *registry) Blobs() distribution.BlobEnumerator {
-	return &blobEnumerator{
-		client: n.client,
+// Blobs returns a stub implementation of distribution.BlobEnumerator that doesn't support enumeration.
+func (r *registry) Blobs() distribution.BlobEnumerator {
+	return &unsupportedBlobEnumerator{}
+}
+
+// BlobStatter returns a blob store that can stat blobs in the containerd content store.
+// It doesn't seem BlobStatter is used in distribution, but it's part of the interface.
+func (r *registry) BlobStatter() distribution.BlobStatter {
+	return &blobStore{
+		client: r.client,
 	}
 }
 
-// BlobStatter returns a blob statter.
-// TODO: return blobStore
-func (n *registry) BlobStatter() distribution.BlobStatter {
-	return &blobStatter{
-		client: n.client,
-	}
-}
+// unsupportedBlobEnumerator implements distribution.BlobEnumerator but doesn't support enumeration.
+type unsupportedBlobEnumerator struct{}
 
-// blobEnumerator implements distribution.BlobEnumerator.
-type blobEnumerator struct {
-	client *Client
-}
-
-// Enumerate is not supported for containerd backend.
-func (e *blobEnumerator) Enumerate(ctx context.Context, ingester func(digest.Digest) error) error {
-	// We don't support blob enumeration for now.
+// Enumerate is not supported for containerd backend for now.
+// It looks like distribution.BlobEnumerator is used for garbage collection, but we don't need that because containerd
+// has its own garbage collection mechanism that works with content store directly.
+func (e *unsupportedBlobEnumerator) Enumerate(_ context.Context, _ func(digest.Digest) error) error {
 	return distribution.ErrUnsupported
-}
-
-// blobStatter implements distribution.BlobStatter.
-type blobStatter struct {
-	client *Client
-}
-
-// Stat returns the descriptor for a blob.
-func (s *blobStatter) Stat(ctx context.Context, dgst digest.Digest) (distribution.Descriptor, error) {
-	ctx = s.client.Context(ctx)
-	info, err := s.client.ContentStore().Info(ctx, dgst)
-	if err != nil {
-		// TODO: use blob store Stat
-		return distribution.Descriptor{}, err
-	}
-
-	return distribution.Descriptor{
-		MediaType: "application/octet-stream",
-		Digest:    info.Digest,
-		Size:      info.Size,
-	}, nil
 }
