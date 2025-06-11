@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/content"
@@ -56,21 +56,17 @@ func (b *blobStore) Get(ctx context.Context, dgst digest.Digest) ([]byte, error)
 	return blob, nil
 }
 
-// Open returns a reader for the blob.
-// TODO
+// Open returns a reader for the blob in the containerd content store by its digest.
 func (b *blobStore) Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error) {
-	reader, err := b.client.ContentStore().ReaderAt(ctx, ocispec.Descriptor{Digest: dgst})
+	reader, err := newBlobReadSeekCloser(ctx, b.client.ContentStore(), ocispec.Descriptor{Digest: dgst})
 	if err != nil {
-		// TODO: convert err if possible
-		return nil, err
+		if errdefs.IsNotFound(err) {
+			return nil, distribution.ErrBlobUnknown
+		}
+		return nil, fmt.Errorf("open blob '%s' from containerd content store: %w", dgst, err)
 	}
 
-	// Wrap the ReaderAt as a ReadSeekCloser
-	return &readerAtWrapper{
-		readerAt: reader,
-		size:     reader.Size(),
-		offset:   0,
-	}, nil
+	return reader, nil
 }
 
 // Put stores a blob in the containerd content store with the given media type. If the blob already exists,
@@ -128,77 +124,59 @@ func (b *blobStore) Mount(ctx context.Context, sourceRepo reference.Named, dgst 
 	return distribution.Descriptor{}, distribution.ErrUnsupported
 }
 
-// ServeBlob serves the blob over HTTP.
-// TODO
+// ServeBlob serves the blob from containerd content store over HTTP.
 func (b *blobStore) ServeBlob(ctx context.Context, w http.ResponseWriter, r *http.Request, dgst digest.Digest) error {
+	// Get the blob info to check if it exists and populate the response headers.
+	desc, err := b.Stat(ctx, dgst)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", desc.MediaType)
+	w.Header().Set("Content-Length", strconv.FormatInt(desc.Size, 10))
+	w.Header().Set("Docker-Content-Digest", dgst.String())
+	w.Header().Set("Etag", dgst.String())
+
+	if r.Method == http.MethodHead {
+		return nil
+	}
+
 	reader, err := b.Open(ctx, dgst)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 
-	// Get blob info for size
-	desc, err := b.Stat(ctx, dgst)
-	if err != nil {
-		return err
-	}
-
-	// Set headers
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Docker-Content-Digest", dgst.String())
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", desc.Size))
-
-	// Serve the content with range support
-	http.ServeContent(w, r, "", time.Time{}, reader)
-	return nil
+	_, err = io.CopyN(w, reader, desc.Size)
+	return err
 }
 
-// Delete removes a blob.
+// Delete is not supported for simplicity.
+// Deletion can be done by deleting images in containerd, which will clean up the blobs.
 func (b *blobStore) Delete(ctx context.Context, dgst digest.Digest) error {
-	// For now, we don't support deletion to keep things simple
-	// Containerd's garbage collection should handle cleanup
 	return distribution.ErrUnsupported
 }
 
-// readerAtWrapper wraps a content.ReaderAt to implement io.ReadSeekCloser.
-type readerAtWrapper struct {
-	readerAt content.ReaderAt
-	size     int64
-	offset   int64
+// blobReadSeekCloser is an io.ReadSeekCloser that wraps a content.ReaderAt.
+type blobReadSeekCloser struct {
+	*io.SectionReader
+	ra content.ReaderAt
 }
 
-func (r *readerAtWrapper) Read(p []byte) (int, error) {
-	n, err := r.readerAt.ReadAt(p, r.offset)
-	r.offset += int64(n)
-	if err == io.EOF && r.offset == r.size {
-		return n, io.EOF
+func newBlobReadSeekCloser(ctx context.Context, provider content.Provider, desc ocispec.Descriptor) (
+	io.ReadSeekCloser, error,
+) {
+	ra, err := provider.ReaderAt(ctx, desc)
+	if err != nil {
+		return nil, err
 	}
-	return n, err
+
+	return &blobReadSeekCloser{
+		SectionReader: io.NewSectionReader(ra, 0, ra.Size()),
+		ra:            ra,
+	}, nil
 }
 
-func (r *readerAtWrapper) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case io.SeekStart:
-		r.offset = offset
-	case io.SeekCurrent:
-		r.offset += offset
-	case io.SeekEnd:
-		r.offset = r.size + offset
-	default:
-		return 0, fmt.Errorf("invalid whence: %d", whence)
-	}
-
-	if r.offset < 0 {
-		r.offset = 0
-		return 0, fmt.Errorf("negative position")
-	}
-	if r.offset > r.size {
-		r.offset = r.size
-	}
-
-	return r.offset, nil
-}
-
-func (r *readerAtWrapper) Close() error {
-	return r.readerAt.Close()
+func (rsc *blobReadSeekCloser) Close() error {
+	return rsc.ra.Close()
 }
