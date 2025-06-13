@@ -28,13 +28,10 @@ jobs:
 
       - name: Install Go test dependencies
         run: go mod tidy
-
-      - name: Conformance tests
-        run: go test -v ./conformance/...
         working-directory: test
 
-      - name: e2e tests
-        run: go test -v ./e2e/...
+      - name: Conformance and e2e tests
+        run: go test -v ./...
         working-directory: test
 
       # Build and push Docker image for tagged releases.
