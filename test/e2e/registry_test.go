@@ -37,7 +37,8 @@ func TestRegistryPushPull(t *testing.T) {
 	req := testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			FromDockerfile: testcontainers.FromDockerfile{
-				Context: filepath.Join("..", ".."),
+				Context:    filepath.Join("..", ".."),
+				Dockerfile: "Dockerfile.test",
 				BuildOptionsModifier: func(buildOptions *types.ImageBuildOptions) {
 					buildOptions.Target = "unregistry-dind"
 				},

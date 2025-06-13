@@ -1,0 +1,29 @@
+# This is a separate Dockerfile for building the unregistry image for e2e tests using Docker-in-Docker (DinD).
+# testcontainers uses legacy build process without BuildKit, so it doesn't pass BUILDPLATFORM as build argument.
+# As a result, it fails if a Dockerfile contains a stage with `FROM --platform=$BUILDPLATFORM ...` directive.
+
+# Native build of unregistry for the Docker-in-Docker image. I couldn't make testcontainers to pass BUILDPLATFORM
+# to builder-cross, so this is a workaround for e2e tests.
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /build
+
+# Download and cache dependencies and only redownload them in subsequent builds if they change.
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+COPY . .
+RUN go build -o unregistry ./cmd/unregistry
+
+
+# Unregistry in Docker-in-Docker image for e2e tests.
+FROM docker:28.2.2-dind AS unregistry-dind
+
+ENV UNREGISTRY_CONTAINERD_SOCK="/run/docker/containerd/containerd.sock"
+
+COPY scripts/dind-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --from=builder /build/unregistry /usr/local/bin/
+
+EXPOSE 5000
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["unregistry"]
