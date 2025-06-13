@@ -1,6 +1,8 @@
 ARG ALPINE_VERSION=3.22.0
 
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /build
 
