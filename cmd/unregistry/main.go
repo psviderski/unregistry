@@ -36,7 +36,7 @@ Key use cases:
 			bindEnvToFlag(cmd, "log-format", "UNREGISTRY_LOG_FORMAT")
 			bindEnvToFlag(cmd, "log-level", "UNREGISTRY_LOG_LEVEL")
 			bindEnvToFlag(cmd, "namespace", "UNREGISTRY_CONTAINERD_NAMESPACE")
-			bindEnvToFlag(cmd, "socket", "UNREGISTRY_CONTAINERD_SOCK")
+			bindEnvToFlag(cmd, "sock", "UNREGISTRY_CONTAINERD_SOCK")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cfg)
