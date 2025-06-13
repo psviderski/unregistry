@@ -1,6 +1,6 @@
 ARG ALPINE_VERSION=3.22.0
 
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
 WORKDIR /build
 
@@ -9,7 +9,7 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 COPY . .
-RUN go build -o unregistry ./cmd/unregistry
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o unregistry ./cmd/unregistry
 
 
 # Unregistry in Docker-in-Docker image for e2e tests.
