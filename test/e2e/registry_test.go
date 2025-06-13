@@ -342,7 +342,7 @@ func TestRegistryPushPull(t *testing.T) {
 
 		// This image has multiple platforms, we'll pull only 2 of them in remote Docker.
 		availablePlatforms := []string{"linux/amd64", "linux/arm64/v8"}
-		missingPlatform := "linux/arm/v7"
+		missingPlatform := "linux/missing"
 
 		t.Cleanup(func() {
 			_, err := localCli.ImageRemove(ctx, registryImage, image.RemoveOptions{PruneChildren: true})
@@ -365,12 +365,6 @@ func TestRegistryPushPull(t *testing.T) {
 
 		// Test 1: Pull available platforms - should succeed.
 		for _, platform := range availablePlatforms {
-			//// Remove any existing local image first.
-			//_, err = localCli.ImageRemove(ctx, registryImage, image.RemoveOptions{PruneChildren: true})
-			//if err != nil && !client.IsErrNotFound(err) {
-			//	require.NoError(t, err, "Failed to remove local image before pull test")
-			//}
-
 			err = pullImage(ctx, localCli, registryImage, image.PullOptions{Platform: platform})
 			require.NoError(t, err, "Failed to pull available platform '%s' from unregistry", platform)
 
@@ -419,8 +413,9 @@ func TestRegistryPushPull(t *testing.T) {
 		}
 
 		// Test 2: Pull missing platform - should fail with "not found".
+		// Remove any existing local image first.
 		err = pullImage(ctx, localCli, registryImage, image.PullOptions{Platform: missingPlatform})
-		assert.Contains(t, err.Error(), "not found", "Pulling missing platform '%s' should fail with 'not found'")
+		assert.ErrorContains(t, err, "not found", "Pulling missing platform '%s' should fail with 'not found'")
 	})
 
 	t.Run("docker push/pull image with external registry prefix", func(t *testing.T) {
@@ -569,7 +564,7 @@ func TestRegistryPushPull(t *testing.T) {
 			// Verify the pushed image can be pulled using regclient.
 			m, err := rc.ManifestGet(ctx, rc.Ref)
 			require.NoError(t, err, "Failed to get manifest for '%s' from unregistry", tt.image)
-			require.Equal(t, tt.digest, m.GetDigest().String(),
+			require.Equal(t, tt.digest, m.GetDescriptor().Digest.String(),
 				"Manifest digests should match after pushing to unregistry")
 
 			err = rc.ImageExport(ctx, rc.Ref, io.Discard)
