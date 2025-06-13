@@ -43,6 +43,11 @@ func NewRegistry(cfg Config) (*Registry, error) {
 			"filesystem": configuration.Parameters{
 				"rootdirectory": "/tmp/registry", // Dummy storage driver
 			},
+			"maintenance": configuration.Parameters{
+				"uploadpurging": map[interface{}]interface{}{
+					"enabled": false,
+				},
+			},
 		},
 		Middleware: map[string][]configuration.Middleware{
 			"registry": {
