@@ -1,0 +1,68 @@
+name: Test and build
+
+on:
+  push:
+    branches:
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "!docker-pussh"
+      - "!**.md"
+
+jobs:
+  test_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "1.24"
+
+      - name: set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Conformance tests
+        run: go test -v ./conformance/...
+        working-directory: test
+
+      - name: e2e tests
+        run: go test -v ./e2e/...
+        working-directory: test
+
+      # Build and push Docker image for tagged releases.
+      - name: Set up QEMU
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Login to GitHub Container Registry
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/psviderski/unregistry
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Build and push
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          platforms: linux/amd64,linux/arm/v7,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
