@@ -9,7 +9,7 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 COPY . .
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o unregistry ./cmd/unregistry
+RUN go build -o unregistry ./cmd/unregistry
 
 
 # Unregistry in Docker-in-Docker image for e2e tests.
