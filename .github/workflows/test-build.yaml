@@ -60,9 +60,9 @@ jobs:
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: ghcr.io/psviderski/unregistry
+          # latest tag is set automatically by the default flavor: latest=auto behaviour.
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
 
       - name: Build and push Docker image (tagged and latest) to GitHub Container Registry
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
