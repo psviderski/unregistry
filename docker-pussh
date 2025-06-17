@@ -143,7 +143,7 @@ forward_port() {
     local remote_port="$1"
     local local_port
     local output
-    
+
     for _ in {1..10}; do
         local_port=$(random_port)
 
@@ -157,7 +157,7 @@ forward_port() {
             echo "$local_port"
             return 0
         fi
-        
+
         error "failed to forward local port $local_port to remote unregistry port 127.0.0.1:$remote_port: $output"
     done
 
@@ -204,7 +204,7 @@ run_docker_desktop_tunnel() {
             error "failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
         fi
     done
-    
+
     error "failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
 }
 
