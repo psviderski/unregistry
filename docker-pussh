@@ -15,11 +15,7 @@ EOF
     exit 0
 fi
 
-# SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
-# using establish_ssh_connection.
-declare -a SSH_ARGS=()
-# sudo prefix for remote docker commands.
-REMOTE_SUDO=""
+UNREGISTRY_IMAGE="ghcr.io/psviderski/unregistry:latest"
 
 # Colors for output.
 RED='\033[0;31m'
@@ -40,9 +36,13 @@ error() {
     exit 1
 }
 
+# SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
+# using ssh_remote.
+declare -a SSH_ARGS=()
+
 # Establish SSH connection to the remote server that will be reused by subsequent ssh commands via the control socket.
 # It populates the SSH_ARGS array with arguments for reuse.
-establish_ssh_connection() {
+ssh_remote() {
     local ssh_addr="$1"
     local ssh_opts=(
         -o ControlMaster=auto
@@ -66,6 +66,10 @@ establish_ssh_connection() {
     SSH_ARGS=("${ssh_opts[@]}")
     SSH_ARGS+=("$ssh_addr")
 }
+
+# sudo prefix for remote docker commands. It's set to "sudo" if the remote user is not root and requires sudo
+# to run docker commands.
+REMOTE_SUDO=""
 
 # Check if the remote host has Docker installed and if we can run docker commands.
 # If sudo is required, it sets the REMOTE_SUDO variable to "sudo".
@@ -93,6 +97,73 @@ random_port() {
     echo $((55000 + RANDOM % 10536))
 }
 
+# Container name for the unregistry instance on remote host. It's populated by run_unregistry function.
+UNREGISTRY_CONTAINER=""
+# Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
+UNREGISTRY_PORT=""
+
+# Run unregistry container on remote host with retry logic for port binding conflicts.
+# Sets UNREGISTRY_PORT and UNREGISTRY_CONTAINER global variables.
+run_unregistry() {
+    local output
+
+    # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
+    # and print the pull progress to the terminal.
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
+        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
+    fi
+
+    for _ in {1..10}; do
+        UNREGISTRY_PORT=$(random_port)
+        UNREGISTRY_CONTAINER="unregistry-pussh-$$-$UNREGISTRY_PORT"
+
+        if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
+            --name $UNREGISTRY_CONTAINER \
+            -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
+            -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
+            $UNREGISTRY_IMAGE" 2>&1);
+        then
+            return 0
+        fi
+
+        # Remove the container that failed to start if it was created.
+        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+        # Check if the error is due to port binding.
+        if ! echo "$output" | grep -q --ignore-case "bind.*$UNREGISTRY_PORT"; then
+            error "failed to start unregistry container:\n$output"
+        fi
+    done
+
+    error "failed to start unregistry container:\n$output"
+}
+
+# Forward a local port to a remote port over the established SSH connection.
+# Returns the local port that was successfully bound.
+forward_port() {
+    local remote_port="$1"
+    local local_port
+    local output
+    
+    for _ in {1..10}; do
+        local_port=$(random_port)
+
+        # Check if port is already in use locally.
+        # TODO: handle the case when nc is not available.
+        if command -v nc >/dev/null && nc -z 127.0.0.1 "$local_port" 2>/dev/null; then
+            continue
+        fi
+
+        if output=$(ssh "${SSH_ARGS[@]}" -O forward -L "$local_port:127.0.0.1:$remote_port" 2>&1); then
+            echo "$local_port"
+            return 0
+        fi
+        
+        error "failed to forward local port $local_port to remote unregistry port 127.0.0.1:$remote_port: $output"
+    done
+
+    error "failed to find an available local port to forward to remote unregistry port. Please try again."
+}
+
 # Check if the local Docker server is Docker Desktop.
 is_docker_desktop() {
     # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
@@ -100,6 +171,41 @@ is_docker_desktop() {
     output=$(docker version 2>/dev/null)
     echo "$output" | grep -q "Docker Desktop" && return 0
     return 1
+}
+
+# Container name for the Docker Desktop tunnel. It's populated by run_docker_desktop_tunnel function.
+DOCKER_DESKTOP_TUNNEL_CONTAINER=""
+# Port on localhost that docker in Docker Desktop should push to. It's populated by run_docker_desktop_tunnel function.
+DOCKER_DESKTOP_TUNNEL_PORT=""
+
+# Run a socat tunnel container for pushing images from Docker Desktop VM to the forwarded port on the host.
+run_docker_desktop_tunnel() {
+    local host_port="$1"
+    local output
+
+    DOCKER_DESKTOP_TUNNEL_CONTAINER="docker-pussh-tunnel-$$"
+    for _ in {1..10}; do
+        DOCKER_DESKTOP_TUNNEL_PORT=$(random_port)
+
+        if output=$(docker run -d --rm \
+            --name "$DOCKER_DESKTOP_TUNNEL_CONTAINER" \
+            -p "127.0.0.1:$DOCKER_DESKTOP_TUNNEL_PORT:5000" \
+            alpine/socat \
+            TCP-LISTEN:5000,fork,reuseaddr \
+            "TCP-CONNECT:host.docker.internal:$host_port" 2>&1);
+        then
+            return 0
+        fi
+
+        # Remove the container that failed to start if it was created.
+        docker rm -f "$DOCKER_DESKTOP_TUNNEL_CONTAINER" >/dev/null 2>&1 || true
+        # Check if error is due to port binding.
+        if ! echo "$output" | grep -q --ignore-case "bind.*$DOCKER_DESKTOP_TUNNEL_PORT"; then
+            error "failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
+        fi
+    done
+    
+    error "failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
 }
 
 usage() {
@@ -188,28 +294,19 @@ cleanup() {
         warning "Cleaning up after error..."
     fi
 
-    # Remove Docker Desktop tunnel container if exists
-    if [ -n "${TUNNEL_CONTAINER:-}" ]; then
-        info "Removing tunnel container..."
-        docker rm -f "$TUNNEL_CONTAINER" >/dev/null 2>&1 || true
+    # Remove Docker Desktop tunnel container if exists.
+    if [ -n "$DOCKER_DESKTOP_TUNNEL_CONTAINER" ]; then
+        docker rm -f "$DOCKER_DESKTOP_TUNNEL_CONTAINER" >/dev/null 2>&1 || true
     fi
 
-    # Stop and remove remote unregistry container
-    if [ -n "${UNREGISTRY_CONTAINER:-}" ] && [ -n "${SSH_ADDRESS:-}" ]; then
-        info "Stopping remote unregistry container..."
+    # Clean up the temporary registry image tag.
+    if [ -n "${REGISTRY_IMAGE:-}" ]; then
+        docker rmi "$REGISTRY_IMAGE" >/dev/null 2>&1 || true
+    fi
+
+    # Stop and remove unregistry container on remote host.
+    if [ -n "$UNREGISTRY_CONTAINER" ]; then
         ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
-    fi
-
-    # Clean up local tags
-    if [ -n "${LOCAL_TAG:-}" ]; then
-        info "Removing local temporary tag..."
-        docker rmi "$LOCAL_TAG" >/dev/null 2>&1 || true
-    fi
-
-    # Clean up remote tags if push was successful
-    if [ -n "${REMOTE_TEMP_TAG:-}" ] && [ -n "${SSH_ADDRESS:-}" ] && [ "${PUSH_SUCCESS:-false}" = "true" ]; then
-        info "Removing remote temporary tag..."
-        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO rmi $REMOTE_TEMP_TAG" >/dev/null 2>&1 || true
     fi
 
     # Terminate the shared SSH connection if it was established.
@@ -217,9 +314,57 @@ cleanup() {
         ssh "${SSH_ARGS[@]}" -O exit 2>/dev/null || true
     fi
 }
-trap cleanup INT TERM EXIT
+trap cleanup EXIT
 
 info "Connecting to $SSH_ADDRESS..."
-establish_ssh_connection "$SSH_ADDRESS"
-
+ssh_remote "$SSH_ADDRESS"
 check_remote_docker
+
+info "Starting unregistry container on remote host..."
+run_unregistry
+info "Unregistry is listening localhost:$UNREGISTRY_PORT on remote host."
+
+# Forward random local port to remote unregistry port through established SSH connection.
+LOCAL_PORT=$(forward_port "$UNREGISTRY_PORT")
+info "Forwarded localhost:$LOCAL_PORT to unregistry over SSH connection."
+
+# Handle Docker Desktop on macOS.
+PUSH_PORT=$LOCAL_PORT
+if is_docker_desktop; then
+    info "Detected Docker Desktop, creating additional tunnel from Docker Desktop VM to localhost:$LOCAL_PORT..."
+    run_docker_desktop_tunnel "$LOCAL_PORT"
+    PUSH_PORT=$DOCKER_DESKTOP_TUNNEL_PORT
+    info "Docker Desktop tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
+fi
+
+# Tag and push the image to unregistry through the forwarded port.
+REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE"
+docker tag "$IMAGE" "$REGISTRY_IMAGE"
+info "Pushing '$REGISTRY_IMAGE' to unregistry..."
+
+declare -a docker_push_opts
+if [ -n "$DOCKER_PLATFORM" ]; then
+    docker_push_opts=("--platform" "$DOCKER_PLATFORM")
+fi
+if ! docker push "${docker_push_opts[@]}" "$REGISTRY_IMAGE"; then
+    error "Failed to push image."
+fi
+
+# Pull image from unregistry if remote Docker doesn't uses containerd image store.
+if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
+    info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
+
+    remote_registry_image="localhost:$UNREGISTRY_PORT/$IMAGE"
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $remote_registry_image"; then
+        error "failed to pull image from unregistry on remote host."
+    fi
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $remote_registry_image $IMAGE"; then
+        error "failed to retag image on remote host $remote_registry_image → $IMAGE"
+    fi
+    ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rmi $remote_registry_image" >/dev/null || true
+fi
+
+info "Removing unregistry container on remote host..."
+ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null || true
+
+info "Successfully pushed '$IMAGE' to $SSH_ADDRESS"
