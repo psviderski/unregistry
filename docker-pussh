@@ -15,6 +15,10 @@ EOF
     exit 0
 fi
 
+# SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
+# using establish_ssh_connection.
+declare -a SSH_ARGS=()
+
 # Colors for output.
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -32,6 +36,47 @@ warning() {
 error() {
     echo -e "${RED}[ERROR]${NC} $1" >&2
     exit 1
+}
+
+# Establish SSH connection to the remote server that will be reused by subsequent ssh commands via the control socket.
+# It populates the SSH_ARGS array with arguments for reuse.
+establish_ssh_connection() {
+    local ssh_addr="$1"
+    local ssh_opts=(
+        -o ControlMaster=auto
+        # Unique control socket path for this invocation.
+        -o "ControlPath=/tmp/docker-pussh-$$.sock"
+        # The connection will be automatically terminated after 1 minute of inactivity.
+        -o ControlPersist=1m
+        -o ConnectTimeout=15
+    )
+    # Add SSH key option if provided.
+    if [ -n "$SSH_KEY" ]; then
+        ssh_opts+=(-i "$SSH_KEY")
+    fi
+
+    # Establish ControlMaster connection in the background.
+    if ! ssh "${ssh_opts[@]}" -f -N "$ssh_addr"; then
+        error "failed to connect to remote host via SSH: $ssh_addr"
+    fi
+
+    # Populate SSH_ARGS array for reuse in all subsequent commands.
+    SSH_ARGS=("${ssh_opts[@]}")
+    SSH_ARGS+=("$ssh_addr")
+}
+
+# Generate a random port in range 55000-65535.
+random_port() {
+    echo $((55000 + RANDOM % 10536))
+}
+
+# Check if the local Docker server is Docker Desktop.
+is_docker_desktop() {
+    # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
+    local output
+    output=$(docker version 2>/dev/null)
+    echo "$output" | grep -q "Docker Desktop" && return 0
+    return 1
 }
 
 usage() {
@@ -67,14 +112,14 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -i|--ssh-key)
             if [ -z "${2:-}" ]; then
-                error "-i/--ssh-key option requires an argument.\n${help_command}"
+                error "-i/--ssh-key option requires an argument.\n$help_command"
             fi
             SSH_KEY="$2"
             shift 2
             ;;
         --platform)
             if [ -z "${2:-}" ]; then
-                error "--platform option requires an argument.\n${help_command}"
+                error "--platform option requires an argument.\n$help_command"
             fi
             DOCKER_PLATFORM="$2"
             shift 2
@@ -84,7 +129,7 @@ while [ $# -gt 0 ]; do
             exit 0
             ;;
         -*)
-            error "unknown option: $1\n${help_command}"
+            error "unknown option: $1\n$help_command"
             ;;
         *)
             # First non-option argument is the image.
@@ -94,7 +139,7 @@ while [ $# -gt 0 ]; do
             elif [ -z "$SSH_ADDRESS" ]; then
                 SSH_ADDRESS="$1"
             else
-                error "too many arguments.\n${help_command}"
+                error "too many arguments.\n$help_command"
             fi
             shift
             ;;
@@ -103,9 +148,69 @@ done
 
 # Validate required arguments.
 if [ -z "$IMAGE" ] || [ -z "$SSH_ADDRESS" ]; then
-    error "IMAGE and HOST are required.\n${help_command}"
+    error "IMAGE and HOST are required.\n$help_command"
 fi
 # Validate SSH key file exists if provided.
 if [ -n "$SSH_KEY" ] && [ ! -f "$SSH_KEY" ]; then
     error "SSH key file not found: $SSH_KEY"
 fi
+
+
+# Function to cleanup resources
+# TODO: review cleanup
+cleanup() {
+    local exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        warning "Cleaning up after error..."
+    fi
+
+    # Cancel SSH tunnel forwarding
+    if [ -n "${LOCAL_PORT:-}" ] && [ -n "${REMOTE_PORT:-}" ] && [ -n "${SSH_CONTROL_SOCKET:-}" ] && [ -S "$SSH_CONTROL_SOCKET" ]; then
+        info "Closing SSH tunnel..."
+        local ssh_opts=(-o "ControlPath=$SSH_CONTROL_SOCKET")
+        if [ -n "$SSH_KEY" ]; then
+            ssh_opts+=(-i "$SSH_KEY")
+        fi
+        ssh "${ssh_opts[@]}" -O cancel -L "$LOCAL_PORT:127.0.0.1:$REMOTE_PORT" "$SSH_ADDRESS" 2>/dev/null || true
+    fi
+
+    # Remove Docker Desktop tunnel container if exists
+    if [ -n "${TUNNEL_CONTAINER:-}" ]; then
+        info "Removing tunnel container..."
+        docker rm -f "$TUNNEL_CONTAINER" >/dev/null 2>&1 || true
+    fi
+
+    # Stop and remove remote unregistry container
+    if [ -n "${UNREGISTRY_CONTAINER:-}" ] && [ -n "${SSH_ADDRESS:-}" ]; then
+        info "Stopping remote unregistry container..."
+        ssh "${SSH_ARGS[@]}" "docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+    fi
+
+    # Clean up local tags
+    if [ -n "${LOCAL_TAG:-}" ]; then
+        info "Removing local temporary tag..."
+        docker rmi "$LOCAL_TAG" >/dev/null 2>&1 || true
+    fi
+
+    # Clean up remote tags if push was successful
+    if [ -n "${REMOTE_TEMP_TAG:-}" ] && [ -n "${SSH_ADDRESS:-}" ] && [ "${PUSH_SUCCESS:-false}" = "true" ]; then
+        info "Removing remote temporary tag..."
+        ssh "${SSH_ARGS[@]}" "docker rmi $REMOTE_TEMP_TAG" >/dev/null 2>&1 || true
+    fi
+
+    # Clean up SSH ControlMaster socket
+    if [ -n "${SSH_CONTROL_SOCKET:-}" ] && [ -S "$SSH_CONTROL_SOCKET" ]; then
+        info "Closing SSH ControlMaster connection..."
+        local ssh_opts=(-o "ControlPath=$SSH_CONTROL_SOCKET")
+        if [ -n "$SSH_KEY" ]; then
+            ssh_opts+=(-i "$SSH_KEY")
+        fi
+        ssh "${ssh_opts[@]}" -O exit "$SSH_ADDRESS" 2>/dev/null || true
+        rm -f "$SSH_CONTROL_SOCKET"
+    fi
+}
+trap cleanup INT TERM EXIT
+
+establish_ssh_connection "$SSH_ADDRESS"
+info "Connected to $SSH_ADDRESS"
