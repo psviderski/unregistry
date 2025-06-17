@@ -65,6 +65,15 @@ declare -a SSH_ARGS=()
 # It populates the SSH_ARGS array with arguments for reuse.
 ssh_remote() {
     local ssh_addr="$1"
+    local target port
+    # Split out the port component, if exists
+    if [[ "$ssh_addr" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
+        target="${BASH_REMATCH[1]}"
+        port="${BASH_REMATCH[3]:-22}"  # Default port is 22 if not specified
+    else
+        error "Invalid SSH address format. Expected format: [USER@]HOST[:PORT]"
+    fi
+
     local ssh_opts=(
         -o ControlMaster=auto
         # Unique control socket path for this invocation.
@@ -72,6 +81,7 @@ ssh_remote() {
         # The connection will be automatically terminated after 1 minute of inactivity.
         -o ControlPersist=1m
         -o ConnectTimeout=15
+        -p "${port}"
     )
     # Add SSH key option if provided.
     if [ -n "$SSH_KEY" ]; then
@@ -79,13 +89,13 @@ ssh_remote() {
     fi
 
     # Establish ControlMaster connection in the background.
-    if ! ssh "${ssh_opts[@]}" -f -N "$ssh_addr"; then
+    if ! ssh "${ssh_opts[@]}" -f -N "${target}"; then
         error "Failed to connect to remote host via SSH: $ssh_addr"
     fi
 
     # Populate SSH_ARGS array for reuse in all subsequent commands.
     SSH_ARGS=("${ssh_opts[@]}")
-    SSH_ARGS+=("$ssh_addr")
+    SSH_ARGS+=("${target}")
 }
 
 # sudo prefix for remote docker commands. It's set to "sudo" if the remote user is not root and requires sudo
