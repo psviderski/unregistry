@@ -18,6 +18,8 @@ fi
 # SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
 # using establish_ssh_connection.
 declare -a SSH_ARGS=()
+# sudo prefix for remote docker commands.
+REMOTE_SUDO=""
 
 # Colors for output.
 RED='\033[0;31m'
@@ -63,6 +65,27 @@ establish_ssh_connection() {
     # Populate SSH_ARGS array for reuse in all subsequent commands.
     SSH_ARGS=("${ssh_opts[@]}")
     SSH_ARGS+=("$ssh_addr")
+}
+
+# Check if the remote host has Docker installed and if we can run docker commands.
+# If sudo is required, it sets the REMOTE_SUDO variable to "sudo".
+check_remote_docker() {
+    # Check if docker command is available.
+    if ! ssh "${SSH_ARGS[@]}" "command -v docker" >/dev/null 2>&1; then
+        error "'docker' command not found on remote host. Please ensure Docker is installed."
+    fi
+    # Check if we need sudo to run docker commands.
+    if ! ssh "${SSH_ARGS[@]}" "docker version" >/dev/null 2>&1; then
+        # Check if we're not root and if sudo docker works.
+        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo docker version" >/dev/null; then
+            REMOTE_SUDO="sudo"
+        else
+            error "failed to run docker commands on remote host. Please ensure:
+  - Docker is installed and running on the remote host
+  - SSH user has permissions to run docker commands (user is root or non-root user is in 'docker' group)
+  - If sudo is required, ensure the user can run 'sudo docker' without a password prompt"
+        fi
+    fi
 }
 
 # Generate a random port in range 55000-65535.
@@ -165,16 +188,6 @@ cleanup() {
         warning "Cleaning up after error..."
     fi
 
-    # Cancel SSH tunnel forwarding
-    if [ -n "${LOCAL_PORT:-}" ] && [ -n "${REMOTE_PORT:-}" ] && [ -n "${SSH_CONTROL_SOCKET:-}" ] && [ -S "$SSH_CONTROL_SOCKET" ]; then
-        info "Closing SSH tunnel..."
-        local ssh_opts=(-o "ControlPath=$SSH_CONTROL_SOCKET")
-        if [ -n "$SSH_KEY" ]; then
-            ssh_opts+=(-i "$SSH_KEY")
-        fi
-        ssh "${ssh_opts[@]}" -O cancel -L "$LOCAL_PORT:127.0.0.1:$REMOTE_PORT" "$SSH_ADDRESS" 2>/dev/null || true
-    fi
-
     # Remove Docker Desktop tunnel container if exists
     if [ -n "${TUNNEL_CONTAINER:-}" ]; then
         info "Removing tunnel container..."
@@ -184,7 +197,7 @@ cleanup() {
     # Stop and remove remote unregistry container
     if [ -n "${UNREGISTRY_CONTAINER:-}" ] && [ -n "${SSH_ADDRESS:-}" ]; then
         info "Stopping remote unregistry container..."
-        ssh "${SSH_ARGS[@]}" "docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
     fi
 
     # Clean up local tags
@@ -196,21 +209,17 @@ cleanup() {
     # Clean up remote tags if push was successful
     if [ -n "${REMOTE_TEMP_TAG:-}" ] && [ -n "${SSH_ADDRESS:-}" ] && [ "${PUSH_SUCCESS:-false}" = "true" ]; then
         info "Removing remote temporary tag..."
-        ssh "${SSH_ARGS[@]}" "docker rmi $REMOTE_TEMP_TAG" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO rmi $REMOTE_TEMP_TAG" >/dev/null 2>&1 || true
     fi
 
-    # Clean up SSH ControlMaster socket
-    if [ -n "${SSH_CONTROL_SOCKET:-}" ] && [ -S "$SSH_CONTROL_SOCKET" ]; then
-        info "Closing SSH ControlMaster connection..."
-        local ssh_opts=(-o "ControlPath=$SSH_CONTROL_SOCKET")
-        if [ -n "$SSH_KEY" ]; then
-            ssh_opts+=(-i "$SSH_KEY")
-        fi
-        ssh "${ssh_opts[@]}" -O exit "$SSH_ADDRESS" 2>/dev/null || true
-        rm -f "$SSH_CONTROL_SOCKET"
+    # Terminate the shared SSH connection if it was established.
+    if [ ${#SSH_ARGS[@]} -ne 0 ]; then
+        ssh "${SSH_ARGS[@]}" -O exit 2>/dev/null || true
     fi
 }
 trap cleanup INT TERM EXIT
 
+info "Connecting to $SSH_ADDRESS..."
 establish_ssh_connection "$SSH_ADDRESS"
-info "Connected to $SSH_ADDRESS"
+
+check_remote_docker
