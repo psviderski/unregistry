@@ -69,7 +69,7 @@ ssh_remote() {
     # Split out the port component, if exists
     if [[ "$ssh_addr" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
         target="${BASH_REMATCH[1]}"
-        port="${BASH_REMATCH[3]:-22}"  # Default port is 22 if not specified
+        port="${BASH_REMATCH[3]:-}"
     else
         error "Invalid SSH address format. Expected format: [USER@]HOST[:PORT]"
     fi
@@ -81,8 +81,11 @@ ssh_remote() {
         # The connection will be automatically terminated after 1 minute of inactivity.
         -o ControlPersist=1m
         -o ConnectTimeout=15
-        -p "${port}"
     )
+    # Add port if specified
+    if [ -n "$port" ]; then
+        ssh_opts+=(-p "$port")
+    fi
     # Add SSH key option if provided.
     if [ -n "$SSH_KEY" ]; then
         ssh_opts+=(-i "$SSH_KEY")
