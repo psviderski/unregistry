@@ -155,7 +155,6 @@ docker pussh image:latest user@192.168.1.100
 - OpenSSH client
 
 ### On remote server
-- Docker daemon accessible by your SSH user
 - Docker is installed and running
 - SSH user has permissions to run `docker` commands (user is `root` or non-root user is in `docker` group)
 - If `sudo` is required, ensure the user can run `sudo docker` without a password prompt
