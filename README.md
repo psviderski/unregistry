@@ -13,6 +13,7 @@ Unregistry is a lightweight container image registry that stores and serves imag
 storage.
 
 The included `docker pussh` command (extra 's' for SSH) lets you push images straight to remote Docker servers over SSH.
+It transfers only the missing layers, making it fast and efficient.
 
 https://github.com/user-attachments/assets/9d704b87-8e0d-4c8a-9544-17d4c63bd050
 
