@@ -1,7 +1,7 @@
 <div align="center">
   <img src=".github/images/logo-light.svg#gh-light-mode-only" alt="Unregistry logo"/>
   <img src=".github/images/logo-dark.svg#gh-dark-mode-only" alt="Unregistry logo"/>
-  <p><strong>▸ Push docker images directly to remote servers without a registry ◂</strong></p>
+  <p><strong>▸ Push docker images directly to remote servers without an external registry ◂</strong></p>
 
   <p>
     <a href="https://discord.gg/eR35KQJhPu"><img src="https://img.shields.io/badge/discord-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord"></a>
@@ -45,6 +45,7 @@ the world. Just a **direct transfer** of the **missing image layers** over SSH.
 > solution.
 
 
+##
 <div align="center">
   Built with ❤️ by <a href="https://github.com/psviderski">Pasha Sviderski</a> who just wanted to deploy his images
 </div>
