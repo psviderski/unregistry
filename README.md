@@ -9,7 +9,8 @@
   </p>
 </div>
 
-Unregistry is a lightweight container image registry that serves images directly from your Docker daemon's storage.
+Unregistry is a lightweight container image registry that stores and serves images directly from your Docker daemon's
+storage.
 
 The included `docker pussh` command (extra 's' for SSH) lets you push images straight to remote Docker servers over SSH.
 
