@@ -365,9 +365,11 @@ info "Pushing '$REGISTRY_IMAGE' to unregistry..."
 
 DOCKER_PUSH_OPTS=()
 if [ -n "$DOCKER_PLATFORM" ]; then
-    DOCKER_PUSH_OPTS=("--platform" "$DOCKER_PLATFORM")
+    DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
 fi
-if ! docker push "${DOCKER_PUSH_OPTS[@]}" "$REGISTRY_IMAGE"; then
+
+# That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
+if ! docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
     error "Failed to push image."
 fi
 
