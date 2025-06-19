@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
+    set -x
+fi
+
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [ "${1:-}" = "docker-cli-plugin-metadata" ]; then
     cat <<EOF
