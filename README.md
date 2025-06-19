@@ -31,7 +31,7 @@ You just want to move an image from A to B. Why is this so hard?
 ## The solution
 
 ```bash
-docker pussh myapp:latest user@server
+docker push myapp:latest user@server
 ```
 
 That's it. Your image is on the remote server. No registry setup, no subscription, no intermediate storage, no 
