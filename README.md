@@ -39,7 +39,7 @@ exposed ports. Just a **direct transfer** of the **missing layers** over SSH.
 
 Here's what happens under the hood:
 1. Establishes SSH tunnel to the remote server
-2. Starts a temporary unregistry container
+2. Starts a temporary unregistry container on the server
 3. Forwards a random localhost port to the unregistry port over the tunnel
 4. `docker push` to unregistry through the forwarded port, transferring only the layers that don't already exist 
    remotely. The transferred image is instantly available on the remote Docker daemon
