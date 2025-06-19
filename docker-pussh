@@ -363,11 +363,11 @@ REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE"
 docker tag "$IMAGE" "$REGISTRY_IMAGE"
 info "Pushing '$REGISTRY_IMAGE' to unregistry..."
 
-declare -a docker_push_opts
+DOCKER_PUSH_OPTS=()
 if [ -n "$DOCKER_PLATFORM" ]; then
-    docker_push_opts=("--platform" "$DOCKER_PLATFORM")
+    DOCKER_PUSH_OPTS=("--platform" "$DOCKER_PLATFORM")
 fi
-if ! docker push "${docker_push_opts[@]}" "$REGISTRY_IMAGE"; then
+if ! docker push "${DOCKER_PUSH_OPTS[@]}" "$REGISTRY_IMAGE"; then
     error "Failed to push image."
 fi
 
