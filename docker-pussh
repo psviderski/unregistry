@@ -155,6 +155,8 @@ run_unregistry() {
             --name $UNREGISTRY_CONTAINER \
             -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
             -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
+            --userns=host \
+            --user root:root \
             $UNREGISTRY_IMAGE" 2>&1);
         then
             return 0
