@@ -5,13 +5,15 @@ if [[ "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
     set -x
 fi
 
+VERSION="0.1.0"
+
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [ "${1:-}" = "docker-cli-plugin-metadata" ]; then
     cat <<EOF
 {
   "SchemaVersion": "0.1.0",
   "Vendor": "https://github.com/psviderski",
-  "Version": "0.1.0",
+  "Version": "${VERSION}",
   "ShortDescription": "Upload image to remote Docker daemon via SSH without external registry"
 }
 EOF
@@ -276,6 +278,10 @@ while [ $# -gt 0 ]; do
             ;;
         -h|--help)
             usage
+            exit 0
+            ;;
+        -v|--version)
+            echo "docker-pussh, version ${VERSION}"
             exit 0
             ;;
         -*)
