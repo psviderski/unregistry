@@ -35,21 +35,22 @@ You just want to move an image from A to B. Why is this so hard?
 docker pussh myapp:latest user@server
 ```
 
-That's it. Your image is on the remote server. No registry setup, no subscription, no intermediate storage, no 
+That's it. Your image is on the remote server. No registry setup, no subscription, no intermediate storage, no
 exposed ports. Just a **direct transfer** of the **missing layers** over SSH.
 
 Here's what happens under the hood:
+
 1. Establishes SSH tunnel to the remote server
 2. Starts a temporary unregistry container on the server
 3. Forwards a random localhost port to the unregistry port over the tunnel
-4. `docker push` to unregistry through the forwarded port, transferring only the layers that don't already exist 
+4. `docker push` to unregistry through the forwarded port, transferring only the layers that don't already exist
    remotely. The transferred image is instantly available on the remote Docker daemon
 5. Stops the unregistry container and closes the SSH tunnel
 
 It's like `rsync` for Docker images — simple and efficient.
 
-> [!NOTE]  
-> Unregistry was created for [Uncloud](https://github.com/psviderski/uncloud), a lightweight tool for deploying 
+> [!NOTE]
+> Unregistry was created for [Uncloud](https://github.com/psviderski/uncloud), a lightweight tool for deploying
 > containers across multiple Docker hosts. We needed something simpler than a full registry but more efficient than
 > save/load.
 
@@ -70,12 +71,22 @@ ln -sf $(brew --prefix)/bin/docker-pussh ~/.docker/cli-plugins/docker-pussh
 
 ### macOS/Linux via direct download
 
+Download the current version:
+
 ```bash
-# Download the latest version
-curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pussh \
+# Download the script to the docker plugins directory
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.1.0/docker-pussh \
   -o ~/.docker/cli-plugins/docker-pussh
 
 # Make it executable
+chmod +x ~/.docker/cli-plugins/docker-pussh
+```
+
+If you want to download and use the latest version from the main branch:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pussh \
+  -o ~/.docker/cli-plugins/docker-pussh
 chmod +x ~/.docker/cli-plugins/docker-pussh
 ```
 
@@ -93,7 +104,7 @@ apt install docker-pussh
 
 ### Windows
 
-Windows is not currently supported, but you can try using [WSL 2](https://docs.docker.com/desktop/features/wsl/) 
+Windows is not currently supported, but you can try using [WSL 2](https://docs.docker.com/desktop/features/wsl/)
 with the above Linux instructions.
 
 ### Verify installation
@@ -104,8 +115,8 @@ docker pussh --help
 
 ## Usage
 
-Push an image to a remote server. Please make sure the SSH user has permissions to run `docker` commands (user is 
-`root` or non-root user is in `docker` group). If `sudo` is required, ensure the user can run `sudo docker` without 
+Push an image to a remote server. Please make sure the SSH user has permissions to run `docker` commands (user is
+`root` or non-root user is in `docker` group). If `sudo` is required, ensure the user can run `sudo docker` without
 a password prompt.
 
 ```bash
@@ -165,10 +176,12 @@ docker pussh image:latest user@192.168.1.100
 ## Requirements
 
 ### On local machine
+
 - Docker CLI with plugin support (Docker 19.03+)
 - OpenSSH client
 
 ### On remote server
+
 - Docker is installed and running
 - SSH user has permissions to run `docker` commands (user is `root` or non-root user is in `docker` group)
 - If `sudo` is required, ensure the user can run `sudo docker` without a password prompt
@@ -178,6 +191,7 @@ docker pussh image:latest user@192.168.1.100
 > enabled. This allows unregistry to access images more efficiently.
 >
 > Add the following configuration to `/etc/docker/daemon.json` on the remote server and restart the `docker` service:
+>
 > ```json
 > {
 >   "features": {
@@ -229,12 +243,13 @@ Found a bug or have a feature idea? We'd love your help!
 
 ## Inspiration & acknowledgements
 
-- [Spegel](https://github.com/spegel-org/spegel) - P2P container image registry that inspired me to implement a 
+- [Spegel](https://github.com/spegel-org/spegel) - P2P container image registry that inspired me to implement a
   registry that uses containerd image store as a backend.
 - [Docker Distribution](https://github.com/distribution/distribution) - the bulletproof Docker registry implementation
   that unregistry uses as a base.
 
 ##
+
 <div align="center">
   Built with ❤️ by <a href="https://github.com/psviderski">Pasha Sviderski</a> who just wanted to deploy his images
 </div>
