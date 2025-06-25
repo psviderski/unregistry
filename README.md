@@ -68,8 +68,8 @@ It's like `rsync` for Docker images — simple and efficient.
   [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)
   for details)
 - If `sudo` is required, ensure the user can run `sudo docker` without a password prompt
-- Unregistry container requires access to the containerd socket at `/run/containerd/containerd.sock`, so it runs as
-  `root` to have permissions to access it
+- Unregistry container requires access to the containerd socket at `/run/containerd/containerd.sock`, so the container
+  runs as `root` to have the necessary permissions
 
 ## Installation
 
@@ -247,8 +247,11 @@ docker pussh myapp:latest prod-server
 Found a bug or have a feature idea? We'd love your help!
 
 - 🐛 Found a bug? [Open an issue](https://github.com/psviderski/unregistry/issues)
-- 💡 Have ideas or need help? [Join Uncloud Discord community](https://discord.gg/eR35KQJhPu) where we discuss features,
-  roadmap, implementation details, and help each other out.
+* 💡 Have questions, ideas, or need help?
+  * Start a discussion or join an existing one in
+    the [Discussions](https://github.com/psviderski/unregistry/discussions).
+  * Join the [Uncloud Discord community](https://discord.gg/eR35KQJhPu) where we discuss features, roadmap,
+    implementation details, and help each other out.
 
 ## Inspiration & acknowledgements
 
