@@ -68,13 +68,17 @@ It's like `rsync` for Docker images — simple and efficient.
   [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)
   for details)
 - If `sudo` is required, ensure the user can run `sudo docker` without a password prompt
-- Access to `ghcr.io` to pull the unregistry image `ghcr.io/psviderski/unregistry:latest` on first `docker pussh` use. 
-  For air-gapped environments or where the access to `ghcr.io` is restricted, you can preload the image manually:
-  ```shell
-  # On a machine with internet access
-  docker pull ghcr.io/psviderski/unregistry:latest
-  docker save ghcr.io/psviderski/unregistry:latest | ssh user@server docker load
-  ```
+- Your server has internet access to [ghcr.io](https://ghcr.io) to pull the unregistry image
+  `ghcr.io/psviderski/unregistry:latest` on first `docker pussh` use.
+    - If your server requires a proxy to access the internet, configure Docker to use it by following the
+      [Daemon proxy configuration](https://docs.docker.com/engine/daemon/proxy/) guide.
+    - For air-gapped environments or where the access to [ghcr.io](https://ghcr.io) is restricted, you can preload the
+      image manually:
+      ```shell
+      # On a machine with internet access
+      docker pull ghcr.io/psviderski/unregistry:latest
+      docker save ghcr.io/psviderski/unregistry:latest | ssh user@server docker load
+      ```
 - Unregistry container requires access to the containerd socket at `/run/containerd/containerd.sock`, so the container
   runs as `root` to have the necessary permissions
 
@@ -254,11 +258,12 @@ docker pussh myapp:latest prod-server
 Found a bug or have a feature idea? We'd love your help!
 
 - 🐛 Found a bug? [Open an issue](https://github.com/psviderski/unregistry/issues)
+
 * 💡 Have questions, ideas, or need help?
-  * Start a discussion or join an existing one in
-    the [Discussions](https://github.com/psviderski/unregistry/discussions).
-  * Join the [Uncloud Discord community](https://discord.gg/eR35KQJhPu) where we discuss features, roadmap,
-    implementation details, and help each other out.
+    * Start a discussion or join an existing one in
+      the [Discussions](https://github.com/psviderski/unregistry/discussions).
+    * Join the [Uncloud Discord community](https://discord.gg/eR35KQJhPu) where we discuss features, roadmap,
+      implementation details, and help each other out.
 
 ## Inspiration & acknowledgements
 
