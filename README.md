@@ -90,10 +90,11 @@ curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pu
 chmod +x ~/.docker/cli-plugins/docker-pussh
 ```
 
-### Debian
+### Debian 
 
-You can install unregistry using the [Unofficial repository](https://debian.griffo.io) by running:
+Via unofficial repository packages created and maintained at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
 
+You can install unregistry using the (https://debian.griffo.io) by running:
 
 ```sh
 curl -sS https://debian.griffo.io/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/debian.griffo.io.gpg
