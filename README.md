@@ -68,6 +68,13 @@ It's like `rsync` for Docker images — simple and efficient.
   [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)
   for details)
 - If `sudo` is required, ensure the user can run `sudo docker` without a password prompt
+- Access to `ghcr.io` to pull the unregistry image `ghcr.io/psviderski/unregistry:latest` on first `docker pussh` use. 
+  For air-gapped environments or where the access to `ghcr.io` is restricted, you can preload the image manually:
+  ```shell
+  # On a machine with internet access
+  docker pull ghcr.io/psviderski/unregistry:latest
+  docker save ghcr.io/psviderski/unregistry:latest | ssh user@server docker load
+  ```
 - Unregistry container requires access to the containerd socket at `/run/containerd/containerd.sock`, so the container
   runs as `root` to have the necessary permissions
 
