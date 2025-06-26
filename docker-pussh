@@ -56,11 +56,24 @@ usage() {
     echo "  -i, --ssh-key path      Path to SSH private key for remote login (if not already added to SSH agent)."
     echo "      --platform string   Push a specific platform for a multi-platform image (e.g., linux/amd64, linux/arm64)."
     echo "                          Local Docker has to use containerd image store to support multi-platform images."
+    echo "                          For cross-platform builds (e.g., macOS to Linux), build with --platform first:"
+    echo "                          docker build --platform linux/amd64 -t myimage:latest ."
+    echo "                          When used with --image-transfer-mode scp, also determines the unregistry image platform."
+    echo "      --image-transfer-mode string   How to transfer the unregistry image to remote host (remote|scp, default: remote)."
+    echo "                          'remote': Pull unregistry image directly on remote host (requires internet access)."
+    echo "                          'scp': Pull unregistry image locally and transfer via SSH (for air-gapped environments)."
+    echo "                          With --platform, pulls and transfers only the target platform variant."
     echo ""
     echo "Examples:"
     echo "  docker pussh myimage:latest user@host"
     echo "  docker pussh --platform linux/amd64 myimage:latest host"
     echo "  docker pussh myimage:latest user@host:2222 -i ~/.ssh/id_ed25519"
+    echo "  docker pussh --image-transfer-mode scp myimage:latest user@host"
+    echo "  # Cross-platform: build for target platform first"
+    echo "  docker build --platform linux/amd64 -t myimage:latest ."
+    echo "  docker pussh --platform linux/amd64 myimage:latest user@host"
+    echo "  # Air-gapped with platform-specific unregistry image"
+    echo "  docker pussh --image-transfer-mode scp --platform linux/amd64 myimage:latest user@host"
 }
 
 # SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
@@ -142,15 +155,59 @@ UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
 
+# Transfer unregistry image to remote host using SCP mode (docker save | ssh docker load)
+transfer_unregistry_image_scp() {
+    info "Checking unregistry image availability locally..."
+    
+    # Check if the image exists for the target platform
+    if [ -n "$DOCKER_PLATFORM" ]; then
+        if docker image inspect "$UNREGISTRY_IMAGE" >/dev/null 2>&1 && \
+           docker manifest inspect "$UNREGISTRY_IMAGE" 2>/dev/null | grep -q "\"architecture\": \"$(echo "$DOCKER_PLATFORM" | cut -d'/' -f2)\""; then
+            info "Unregistry image for platform $DOCKER_PLATFORM already available locally"
+        else
+            info "Pulling unregistry image locally for platform $DOCKER_PLATFORM..."
+            if ! docker pull --platform "$DOCKER_PLATFORM" "$UNREGISTRY_IMAGE"; then
+                error "Failed to pull unregistry image locally for platform $DOCKER_PLATFORM: $UNREGISTRY_IMAGE"
+            fi
+        fi
+    else
+        if docker image inspect "$UNREGISTRY_IMAGE" >/dev/null 2>&1; then
+            info "Unregistry image already available locally"
+        else
+            info "Pulling unregistry image locally..."
+            if ! docker pull "$UNREGISTRY_IMAGE"; then
+                error "Failed to pull unregistry image locally: $UNREGISTRY_IMAGE"
+            fi
+        fi
+    fi
+
+    info "Transferring unregistry image to remote host via SSH..."
+    if [ -n "$DOCKER_PLATFORM" ]; then
+        if ! docker save --platform "$DOCKER_PLATFORM" "$UNREGISTRY_IMAGE" | ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker load"; then
+            error "Failed to transfer unregistry image to remote host via SSH"
+        fi
+    else
+        if ! docker save "$UNREGISTRY_IMAGE" | ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker load"; then
+            error "Failed to transfer unregistry image to remote host via SSH"
+        fi
+    fi
+    success "Unregistry image transferred to remote host"
+}
+
 # Run unregistry container on remote host with retry logic for port binding conflicts.
 # Sets UNREGISTRY_PORT and UNREGISTRY_CONTAINER global variables.
 run_unregistry() {
     local output
 
-    # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
-    # and print the pull progress to the terminal.
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
-        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
+    # Ensure unregistry image is available on remote host based on transfer mode
+    if [ "$IMAGE_TRANSFER_MODE" = "scp" ]; then
+        transfer_unregistry_image_scp
+    else
+        # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
+        # and print the pull progress to the terminal.
+        if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
+            ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
+        fi
     fi
 
     for _ in {1..10}; do
@@ -254,6 +311,7 @@ DOCKER_PLATFORM=""
 SSH_KEY=""
 IMAGE=""
 SSH_ADDRESS=""
+IMAGE_TRANSFER_MODE="remote"
 
 # Skip 'pussh' if called as Docker CLI plugin.
 if [ "${1:-}" = "pussh" ]; then
@@ -276,6 +334,16 @@ while [ $# -gt 0 ]; do
                 error "--platform option requires an argument.\n$help_command"
             fi
             DOCKER_PLATFORM="$2"
+            shift 2
+            ;;
+        --image-transfer-mode)
+            if [ -z "${2:-}" ]; then
+                error "--image-transfer-mode option requires an argument.\n$help_command"
+            fi
+            if [ "$2" != "remote" ] && [ "$2" != "scp" ]; then
+                error "--image-transfer-mode must be either 'remote' or 'scp'.\n$help_command"
+            fi
+            IMAGE_TRANSFER_MODE="$2"
             shift 2
             ;;
         -h|--help)
