@@ -118,6 +118,21 @@ curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pu
 chmod +x ~/.docker/cli-plugins/docker-pussh
 ```
 
+### Debian 
+
+Via unofficial repository packages created and maintained at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
+
+You can install unregistry the debian way by running:
+
+```sh
+curl -sS https://debian.griffo.io/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/debian.griffo.io.gpg
+echo "deb https://debian.griffo.io/apt $(lsb_release -sc 2>/dev/null) main" | sudo tee /etc/apt/sources.list.d/debian.griffo.io.list
+apt install -y unregistry
+apt install docker-pussh
+```
+
+or in the releases page of the repository [here](https://github.com/dariogriffo/unregistry-debian/releases)
+
 ### Windows
 
 Windows is not currently supported, but you can try using [WSL 2](https://docs.docker.com/desktop/features/wsl/)
