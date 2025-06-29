@@ -208,6 +208,26 @@ Push a specific platform for a multi-platform image. The local Docker has to use
 docker pussh myapp:latest user@server --platform linux/amd64
 ```
 
+Transfer the unregistry image using SCP mode (useful for air-gapped environments where the remote server
+cannot access the internet to pull the unregistry image):
+
+```shell
+docker pussh myapp:latest user@server --image-transfer-mode scp
+```
+
+For different architectures, specify the platform to ensure the correct unregistry image variant is transferred:
+
+```shell
+# Transfer unregistry image for specific platform (e.g., ARM64 server)
+docker pussh --image-transfer-mode scp --platform linux/arm64 myapp:latest user@server
+```
+
+**Platform-specific transfers**: When using `--image-transfer-mode scp` with `--platform`, the plugin will:
+
+- Pull the correct platform variant of the unregistry image locally
+- Transfer only that platform variant to the remote host
+- Skip pulling if the image is already available locally
+
 ## Use cases
 
 ### Deploy to production servers
@@ -233,7 +253,18 @@ Skip the registry complexity in your pipelines. Build and push directly to deplo
 
 ### Homelab and air-gapped environments
 
-Distribute images in isolated networks that can't access public registries over the internet.
+Distribute images in isolated networks that can't access public registries over the internet. Use the `--image-transfer-mode scp` option to transfer the unregistry image locally and then via SSH:
+
+```shell
+docker pussh myapp:latest user@server --image-transfer-mode scp
+```
+
+For different architectures, specify the platform to ensure the correct unregistry image variant is transferred:
+
+```shell
+# For ARM64 servers
+docker pussh --image-transfer-mode scp --platform linux/arm64 myapp:latest user@server
+```
 
 ## Advanced usage
 
