@@ -63,6 +63,7 @@ usage() {
     echo "                          'remote': Pull unregistry image directly on remote host (requires internet access)."
     echo "                          'scp': Pull unregistry image locally and transfer via SSH (for air-gapped environments)."
     echo "                          With --platform, pulls and transfers only the target platform variant."
+    echo "                          Only used if unregistry image is not already available on remote host."
     echo ""
     echo "Examples:"
     echo "  docker pussh myimage:latest user@host"
@@ -199,13 +200,16 @@ transfer_unregistry_image_scp() {
 run_unregistry() {
     local output
 
-    # Ensure unregistry image is available on remote host based on transfer mode
-    if [ "$IMAGE_TRANSFER_MODE" = "scp" ]; then
-        transfer_unregistry_image_scp
+    # First check if unregistry image is already available on remote host
+    if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
+        info "Unregistry image already available on remote host"
     else
-        # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
-        # and print the pull progress to the terminal.
-        if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
+        # Image not available, use the selected transfer mode
+        if [ "$IMAGE_TRANSFER_MODE" = "scp" ]; then
+            transfer_unregistry_image_scp
+        else
+            # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
+            # and print the pull progress to the terminal.
             ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
         fi
     fi
