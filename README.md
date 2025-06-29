@@ -102,6 +102,8 @@ ln -sf $(brew --prefix)/bin/docker-pussh ~/.docker/cli-plugins/docker-pussh
 Download the current version:
 
 ```shell
+mkdir -p ~/.docker/cli-plugins
+
 # Download the script to the docker plugins directory
 curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.1.0/docker-pussh \
   -o ~/.docker/cli-plugins/docker-pussh
