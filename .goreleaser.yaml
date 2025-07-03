@@ -1,8 +1,30 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
+version: 2
 
 builds:
-  - skip: true
+  # Build a dummy binary for every platform/os combination, so that
+  # GoReleaser does not complain about missing binaries when releasing homebrew casks.
+  - id: dummy
+    main: ./misc/dummy.go
+    env:
+      - CGO_ENABLED=0
+    binary: _empty
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    hooks:
+      post:
+        # Clear the file
+        - bash -c "> {{ .Path }}"
+
+archives:
+  - id: script
+    files:
+      - ./docker-pussh
 
 changelog:
   sort: asc
@@ -10,3 +32,30 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+homebrew_casks:
+  - name: docker-pussh
+    ids: [script]
+    binary: docker-pussh
+    repository:
+      owner: psviderksi
+      name: homebrew-tap
+    homepage: https://github.com/psviderski/unregistry
+    description: "Upload Docker images to remote servers via SSH without an external registry."
+    custom_block: |
+      name "docker-pussh"
+
+      caveats do
+        <<~EOS
+          To use docker-pussh as a Docker CLI plugin ('docker pussh' command) you need to create a symlink:
+
+            mkdir -p ~/.docker/cli-plugins
+            ln -sf #{HOMEBREW_PREFIX}/bin/docker-pussh ~/.docker/cli-plugins/docker-pussh
+
+          After installation, you can use it with:
+            docker pussh [OPTIONS] IMAGE[:TAG] [USER@]HOST[:PORT]
+
+          To uninstall the plugin:
+            rm ~/.docker/cli-plugins/docker-pussh
+        EOS
+      end
