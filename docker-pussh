@@ -209,12 +209,12 @@ forward_port() {
     error "Failed to find an available local port to forward to remote unregistry port. Please try again."
 }
 
-# Check if the local Docker server is Docker Desktop.
-is_docker_desktop() {
+# Check if the local Docker server needs additional tunneling.
+is_additional_tunneling_needed() {
     # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
     local output
     output=$(docker version 2>/dev/null)
-    echo "$output" | grep -q "Docker Desktop" && return 0
+    echo "$output" | grep -E -q "Docker Desktop|colima" && return 0
     return 1
 }
 
@@ -361,13 +361,13 @@ success "Unregistry is listening localhost:$UNREGISTRY_PORT on remote host."
 LOCAL_PORT=$(forward_port "$UNREGISTRY_PORT")
 success "Forwarded localhost:$LOCAL_PORT to unregistry over SSH connection."
 
-# Handle Docker Desktop on macOS.
+# Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
 PUSH_PORT=$LOCAL_PORT
-if is_docker_desktop; then
-    info "Detected Docker Desktop, creating additional tunnel from Docker Desktop VM to localhost:$LOCAL_PORT..."
+if is_additional_tunneling_needed; then
+    info "Detected virtualized Docker, creating additional tunnel to localhost:$LOCAL_PORT..."
     run_docker_desktop_tunnel "$LOCAL_PORT"
     PUSH_PORT=$DOCKER_DESKTOP_TUNNEL_PORT
-    success "Docker Desktop tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
+    success "Additional tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
 fi
 
 # Tag and push the image to unregistry through the forwarded port.
