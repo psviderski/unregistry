@@ -81,12 +81,12 @@ ssh_remote() {
     fi
 
     local ssh_opts=(
-        -o ControlMaster=auto
+        -o "ControlMaster=auto"
         # Unique control socket path for this invocation.
         -o "ControlPath=/tmp/docker-pussh-$$.sock"
         # The connection will be automatically terminated after 1 minute of inactivity.
-        -o ControlPersist=1m
-        -o ConnectTimeout=15
+        -o "ControlPersist=1m"
+        -o "ConnectTimeout=15"
     )
     # Add port if specified
     if [ -n "$port" ]; then
@@ -149,6 +149,7 @@ run_unregistry() {
 
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
+    # shellcheck disable=SC2029
     if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
         ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
     fi
@@ -157,6 +158,7 @@ run_unregistry() {
         UNREGISTRY_PORT=$(random_port)
         UNREGISTRY_CONTAINER="unregistry-pussh-$$-$UNREGISTRY_PORT"
 
+        # shellcheck disable=SC2029
         if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
             --name $UNREGISTRY_CONTAINER \
             -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
@@ -169,6 +171,7 @@ run_unregistry() {
         fi
 
         # Remove the container that failed to start if it was created.
+        # shellcheck disable=SC2029
         ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
         # Check if the error is due to port binding.
         if ! echo "$output" | grep -q --ignore-case "bind.*$UNREGISTRY_PORT"; then
@@ -335,6 +338,7 @@ cleanup() {
 
     # Stop and remove unregistry container on remote host.
     if [ -n "$UNREGISTRY_CONTAINER" ]; then
+        # shellcheck disable=SC2029
         ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
     fi
 
@@ -382,6 +386,7 @@ if ! docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAG
 fi
 
 # Pull image from unregistry if remote Docker doesn't uses containerd image store.
+# shellcheck disable=SC2029
 if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
 
@@ -396,6 +401,7 @@ if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | g
 fi
 
 info "Removing unregistry container on remote host..."
+# shellcheck disable=SC2029
 ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null || true
 
 success "Successfully pushed '$IMAGE' to $SSH_ADDRESS"

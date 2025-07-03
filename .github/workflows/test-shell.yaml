@@ -1,0 +1,37 @@
+name: Check shell scripts
+
+on:
+  push:
+    branches:
+      - main
+      - test/**
+      - release/**
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "docker-pussh"
+      - "**.sh"
+
+jobs:
+  shellcheck:
+    name: Run Shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Shellcheck via mise
+        uses: jdx/mise-action@13abe502c30c1559a5c37dff303831bab82c9402 # v2.2.3
+        with:
+          version: "2025.6.5"
+          install_args: "shellcheck"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Find and lint bash scripts
+        run: |
+          make shellcheck

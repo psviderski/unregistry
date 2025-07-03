@@ -1,3 +1,7 @@
+.PHONY: install-docker-plugin
 install-docker-plugin:
 	cp docker-pussh ~/.docker/cli-plugins/docker-pussh
 
+.PHONY: shellcheck
+shellcheck:
+	find . -type f \( -name "docker-pussh" -o -name "*.sh" \) -print0 | xargs -0 shellcheck;
