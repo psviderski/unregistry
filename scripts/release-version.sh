@@ -44,12 +44,18 @@ echo "---"
 TAG_NAME="v$NEW_VERSION"
 COMMIT_MESSAGE="release: Bump version to ${NEW_VERSION}"
 
+echo "Building the project with goreleaser..."
+goreleaser build --clean --snapshot
+echo "Project built successfully."
+
 if [ "$EXECUTE" = "1" ]; then
     echo "Executing changes..."
     git add -u
     git commit -m "${COMMIT_MESSAGE}"
     git tag "${TAG_NAME}"
     echo "Version bumped to ${NEW_VERSION} and git tag ${TAG_NAME} created."
+    ## TODO: uncomment after some manual testing
+    # goreleaser release --clean
 else
     echo "Would create commit with message: '${COMMIT_MESSAGE}'"
     echo "Would create tag: ${TAG_NAME}"
