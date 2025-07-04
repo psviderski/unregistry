@@ -1,5 +1,6 @@
 [tools]
 go = "1.24"
+goreleaser = "2.10.2"
 shellcheck = "0.10.0"
 
 [env]
