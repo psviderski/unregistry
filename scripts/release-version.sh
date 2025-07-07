@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "${SCRIPT_DIR}/.."
+
 # Ensure a new version argument is provided
 if [ "$#" -lt 1 ]; then
     echo "Usage: ${0} <new-version> [--execute]"
@@ -55,11 +58,12 @@ if [ "$EXECUTE" = "1" ]; then
     git tag "${TAG_NAME}"
     git push origin main "${TAG_NAME}"
     echo "Version bumped to ${NEW_VERSION} and git tag ${TAG_NAME} created."
-    ## TODO: uncomment after some manual testing
-    # goreleaser release --clean
+    echo "Running goreleaser..."
+    goreleaser release --clean
 else
     echo "Would create commit with message: '${COMMIT_MESSAGE}'"
     echo "Would create tag: ${TAG_NAME}"
+    echo "Would run 'goreleaser release --clean' to publish the release."
     echo "Reverting back changes..."
     git checkout .
 fi
