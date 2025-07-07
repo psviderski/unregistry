@@ -32,10 +32,10 @@ echo "Preparing to bump version to ${NEW_VERSION}..."
 echo "Updating version in relevant files..."
 
 # Update version in README.md using backreference
-sed -i "s|\(https://raw.githubusercontent.com/psviderski/unregistry/v\)[0-9]\+\.[0-9]\+\.[0-9]\+\(/docker-pussh\)|\1${NEW_VERSION}\2|g" README.md
+perl -pi -e 's|(https://raw.githubusercontent.com/psviderski/unregistry/v)[0-9]+\.[0-9]+\.[0-9]+(/docker-pussh)|${1}'"${NEW_VERSION}"'${2}|' README.md
 
 # Update VERSION field in docker-pussh
-sed -i "s/^VERSION=\"[0-9]\+\.[0-9]\+\.[0-9]\+\"/VERSION=\"${NEW_VERSION}\"/" docker-pussh
+perl -pi -e "s|^VERSION=\"[0-9]+\.[0-9]+\.[0-9]+\"|VERSION=\"${NEW_VERSION}\"|" docker-pussh
 
 echo -e "Changes pending:\n---"
 git diff
