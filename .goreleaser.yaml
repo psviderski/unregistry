@@ -38,7 +38,7 @@ homebrew_casks:
     ids: [script]
     binary: docker-pussh
     repository:
-      owner: psviderksi
+      owner: psviderski
       name: homebrew-tap
     homepage: https://github.com/psviderski/unregistry
     description: "Upload Docker images to remote servers via SSH without an external registry."

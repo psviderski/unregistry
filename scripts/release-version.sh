@@ -53,6 +53,7 @@ if [ "$EXECUTE" = "1" ]; then
     git add -u
     git commit -m "${COMMIT_MESSAGE}"
     git tag "${TAG_NAME}"
+    git push origin main "${TAG_NAME}"
     echo "Version bumped to ${NEW_VERSION} and git tag ${TAG_NAME} created."
     ## TODO: uncomment after some manual testing
     # goreleaser release --clean
