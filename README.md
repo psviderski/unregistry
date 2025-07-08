@@ -210,6 +210,16 @@ Push a specific platform for a multi-platform image. The local Docker has to use
 docker pussh myapp:latest user@server --platform linux/amd64
 ```
 
+#### Bind SSH tunnel to a specific address (for use inside containers)
+
+If you are running `docker pussh` inside a Docker container and encounter port forwarding issues, you can use the `--bind-address` option:
+
+```shell
+docker pussh --bind-address 0.0.0.0 myapp:latest user@server
+```
+
+This will bind the SSH tunnel and remote unregistry to all interfaces, making it accessible from within the container's network namespace.
+
 ## Use cases
 
 ### Deploy to production servers
