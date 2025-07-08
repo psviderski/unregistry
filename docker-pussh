@@ -20,7 +20,7 @@ EOF
     exit 0
 fi
 
-UNREGISTRY_IMAGE="ghcr.io/psviderski/unregistry:latest"
+UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${VERSION}}
 
 # Colors and symbols for output.
 RED='\033[0;31m'
