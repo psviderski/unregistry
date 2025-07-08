@@ -56,11 +56,13 @@ usage() {
     echo "  -i, --ssh-key path      Path to SSH private key for remote login (if not already added to SSH agent)."
     echo "      --platform string   Push a specific platform for a multi-platform image (e.g., linux/amd64, linux/arm64)."
     echo "                          Local Docker has to use containerd image store to support multi-platform images."
+    echo "      --bind-address addr Bind the SSH tunnel and remote unregistry to this address (default: 127.0.0.1)."
     echo ""
     echo "Examples:"
     echo "  docker pussh myimage:latest user@host"
     echo "  docker pussh --platform linux/amd64 myimage:latest host"
     echo "  docker pussh myimage:latest user@host:2222 -i ~/.ssh/id_ed25519"
+    echo "  docker pussh --bind-address 0.0.0.0 myimage:latest user@host"
 }
 
 # SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
@@ -161,7 +163,7 @@ run_unregistry() {
         # shellcheck disable=SC2029
         if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
             --name $UNREGISTRY_CONTAINER \
-            -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
+            -p $BIND_ADDRESS:$UNREGISTRY_PORT:5000 \
             -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
             --userns=host \
             --user root:root \
@@ -194,16 +196,16 @@ forward_port() {
 
         # Check if port is already in use locally.
         # TODO: handle the case when nc is not available.
-        if command -v nc >/dev/null && nc -z 127.0.0.1 "$local_port" 2>/dev/null; then
+        if command -v nc >/dev/null && nc -z $BIND_ADDRESS "$local_port" 2>/dev/null; then
             continue
         fi
 
-        if output=$(ssh "${SSH_ARGS[@]}" -O forward -L "$local_port:127.0.0.1:$remote_port" 2>&1); then
+        if output=$(ssh "${SSH_ARGS[@]}" -O forward -L "$local_port:$BIND_ADDRESS:$remote_port" 2>&1); then
             echo "$local_port"
             return 0
         fi
 
-        error "Failed to forward local port $local_port to remote unregistry port 127.0.0.1:$remote_port: $output"
+        error "Failed to forward local port $local_port to remote unregistry port $BIND_ADDRESS:$remote_port: $output"
     done
 
     error "Failed to find an available local port to forward to remote unregistry port. Please try again."
@@ -257,6 +259,7 @@ DOCKER_PLATFORM=""
 SSH_KEY=""
 IMAGE=""
 SSH_ADDRESS=""
+BIND_ADDRESS="127.0.0.1"
 
 # Skip 'pussh' if called as Docker CLI plugin.
 if [ "${1:-}" = "pussh" ]; then
@@ -279,6 +282,13 @@ while [ $# -gt 0 ]; do
                 error "--platform option requires an argument.\n$help_command"
             fi
             DOCKER_PLATFORM="$2"
+            shift 2
+            ;;
+        --bind-address)
+            if [ -z "${2:-}" ]; then
+                error "--bind-address option requires an argument.\n$help_command"
+            fi
+            BIND_ADDRESS="$2"
             shift 2
             ;;
         -h|--help)
@@ -355,23 +365,23 @@ check_remote_docker
 
 info "Starting unregistry container on remote host..."
 run_unregistry
-success "Unregistry is listening localhost:$UNREGISTRY_PORT on remote host."
+success "Unregistry is listening $BIND_ADDRESS:$UNREGISTRY_PORT on remote host."
 
 # Forward random local port to remote unregistry port through established SSH connection.
 LOCAL_PORT=$(forward_port "$UNREGISTRY_PORT")
-success "Forwarded localhost:$LOCAL_PORT to unregistry over SSH connection."
+success "Forwarded $BIND_ADDRESS:$LOCAL_PORT to unregistry over SSH connection."
 
 # Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
 PUSH_PORT=$LOCAL_PORT
 if is_additional_tunneling_needed; then
-    info "Detected virtualized Docker, creating additional tunnel to localhost:$LOCAL_PORT..."
+    info "Detected virtualized Docker, creating additional tunnel to $BIND_ADDRESS:$LOCAL_PORT..."
     run_docker_desktop_tunnel "$LOCAL_PORT"
     PUSH_PORT=$DOCKER_DESKTOP_TUNNEL_PORT
-    success "Additional tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
+    success "Additional tunnel created: $BIND_ADDRESS:$PUSH_PORT → $BIND_ADDRESS:$LOCAL_PORT"
 fi
 
 # Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE"
+REGISTRY_IMAGE="$BIND_ADDRESS:$PUSH_PORT/$IMAGE"
 docker tag "$IMAGE" "$REGISTRY_IMAGE"
 info "Pushing '$REGISTRY_IMAGE' to unregistry..."
 
@@ -390,7 +400,7 @@ fi
 if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
 
-    remote_registry_image="localhost:$UNREGISTRY_PORT/$IMAGE"
+    remote_registry_image="$BIND_ADDRESS:$UNREGISTRY_PORT/$IMAGE"
     if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $remote_registry_image"; then
         error "Failed to pull image from unregistry on remote host."
     fi
