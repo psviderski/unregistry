@@ -210,15 +210,11 @@ Push a specific platform for a multi-platform image. The local Docker has to use
 docker pussh myapp:latest user@server --platform linux/amd64
 ```
 
-#### Bind SSH tunnel to a specific address (for use inside containers)
-
-If you are running `docker pussh` inside a Docker container and encounter port forwarding issues, you can use the `--bind-address` option:
+Use a specific port for Docker registry operations (useful for container environments):
 
 ```shell
-docker pussh --bind-address 0.0.0.0 myapp:latest user@server
+docker pussh myapp:latest user@server --docker-port 57012
 ```
-
-This will bind the SSH tunnel and remote unregistry to all interfaces, making it accessible from within the container's network namespace.
 
 ## Use cases
 
@@ -279,6 +275,20 @@ Host prod-server
 # Now just use
 docker pussh myapp:latest prod-server
 ```
+
+### Container environments
+
+When running `docker pussh` inside a Docker container, SSH port forwarding may fail due to networking constraints. Use the `--docker-port` option to specify a fixed port and bind to all interfaces for better compatibility:
+
+```shell
+# Inside a Docker container
+docker pussh myapp:latest user@server --docker-port 57012
+```
+
+This option:
+- Uses the specified port for both unregistry container and SSH tunnel
+- Binds the SSH tunnel to `0.0.0.0` instead of `127.0.0.1` for container compatibility
+- Ensures consistent port usage across all components
 
 ## Contributing
 
