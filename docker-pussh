@@ -213,7 +213,7 @@ forward_port() {
 is_additional_tunneling_needed() {
     # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
     local output
-    output=$(docker version 2>/dev/null)
+    output=$(docker context show 2>/dev/null)
     echo "$output" | grep -E -q "Docker Desktop|colima" && return 0
     return 1
 }
