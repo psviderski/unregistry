@@ -141,11 +141,44 @@ random_port() {
 UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
+# Containerd socket path on remote host. It's populated by find_containerd_socket function.
+CONTAINERD_SOCKET=""
+
+# Find the containerd socket path on the remote host
+find_containerd_socket() {
+    local socket_paths=(
+        "/var/run/docker/containerd/containerd.sock"
+        "/run/containerd/containerd.sock"
+        "/var/run/containerd/containerd.sock"
+        "/run/docker/containerd/containerd.sock"
+    )
+
+    for socket_path in "${socket_paths[@]}"; do
+        # Try without sudo first, then with sudo
+        if ssh "${SSH_ARGS[@]}" "test -S $socket_path" 2>/dev/null || ssh "${SSH_ARGS[@]}" "sudo test -S $socket_path" 2>/dev/null; then
+            CONTAINERD_SOCKET="$socket_path"
+            return 0
+        fi
+    done
+
+    # Try to find containerd socket dynamically
+    local found_socket
+    found_socket=$(ssh "${SSH_ARGS[@]}" "find /var/run /run -name 'containerd.sock' -type s 2>/dev/null | head -1" || ssh "${SSH_ARGS[@]}" "sudo find /var/run /run -name 'containerd.sock' -type s 2>/dev/null | head -1" || true)
+    if [ -n "$found_socket" ]; then
+        CONTAINERD_SOCKET="$found_socket"
+        return 0
+    fi
+
+    error "Could not find containerd socket on remote host. Please ensure containerd is running."
+}
 
 # Run unregistry container on remote host with retry logic for port binding conflicts.
 # Sets UNREGISTRY_PORT and UNREGISTRY_CONTAINER global variables.
 run_unregistry() {
     local output
+
+    # Find containerd socket first
+    find_containerd_socket
 
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
@@ -162,12 +195,22 @@ run_unregistry() {
         if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
             --name $UNREGISTRY_CONTAINER \
             -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
-            -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
+            -v $CONTAINERD_SOCKET:/run/containerd/containerd.sock \
             --userns=host \
             --user root:root \
             $UNREGISTRY_IMAGE" 2>&1);
         then
-            return 0
+            # Wait a moment for the container to start
+            sleep 1
+
+            # Verify the container is actually running and healthy
+            if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker ps --filter name=$UNREGISTRY_CONTAINER --filter status=running --quiet" | grep -q .; then
+                return 0
+            else
+                warning "Unregistry container started but is not running properly, retrying..."
+                ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+                continue
+            fi
         fi
 
         # Remove the container that failed to start if it was created.
@@ -380,9 +423,40 @@ if [ -n "$DOCKER_PLATFORM" ]; then
     DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
 fi
 
+# Store original proxy settings and temporarily disable them for localhost connections
+ORIGINAL_HTTP_PROXY="${HTTP_PROXY:-}"
+ORIGINAL_HTTPS_PROXY="${HTTPS_PROXY:-}"
+ORIGINAL_http_proxy="${http_proxy:-}"
+ORIGINAL_https_proxy="${https_proxy:-}"
+
+# Unset proxy variables for the push operation
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+
 # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
-if ! docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
-    error "Failed to push image."
+# Try push with retry logic for connection issues
+PUSH_RETRY_COUNT=3
+PUSH_SUCCESS=false
+
+for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
+    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
+        PUSH_SUCCESS=true
+        break
+    else
+        if [ $attempt -lt $PUSH_RETRY_COUNT ]; then
+            warning "Push attempt $attempt failed, retrying in 3 seconds..."
+            sleep 3
+        fi
+    fi
+done
+
+# Restore proxy settings
+export HTTP_PROXY="$ORIGINAL_HTTP_PROXY"
+export HTTPS_PROXY="$ORIGINAL_HTTPS_PROXY"
+export http_proxy="$ORIGINAL_http_proxy"
+export https_proxy="$ORIGINAL_https_proxy"
+
+if [ "$PUSH_SUCCESS" = false ]; then
+    error "Failed to push image after $PUSH_RETRY_COUNT attempts."
 fi
 
 # Pull image from unregistry if remote Docker doesn't uses containerd image store.
@@ -391,7 +465,8 @@ if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | g
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
 
     remote_registry_image="localhost:$UNREGISTRY_PORT/$IMAGE"
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $remote_registry_image"; then
+    # Disable proxy on remote host for localhost connections
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy docker pull $remote_registry_image"; then
         error "Failed to pull image from unregistry on remote host."
     fi
     if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $remote_registry_image $IMAGE"; then
