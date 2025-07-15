@@ -4,4 +4,5 @@ install-docker-plugin:
 
 .PHONY: shellcheck
 shellcheck:
-	find . -type f \( -name "docker-pussh" -o -name "*.sh" \) -print0 | xargs -0 shellcheck;
+	find . -path "./tmp" -prune -o -type f \( -name "docker-pussh" -o -name "*.sh" \) -print0 \
+		| xargs -0 shellcheck -s bash;

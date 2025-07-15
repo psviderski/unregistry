@@ -5,6 +5,7 @@ if [[ "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
     set -x
 fi
 
+# Script version
 VERSION="0.1.3"
 
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
@@ -20,7 +21,10 @@ EOF
     exit 0
 fi
 
-UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${VERSION}}
+# Pin the unregistry image version. The image doesn't change too often compared to the script,
+# so we want to avoid unnecessary pulls of the latest image version.
+UNREGISTRY_VERSION=0.1.3
+UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${UNREGISTRY_VERSION}}
 
 # Colors and symbols for output.
 RED='\033[0;31m'
@@ -287,6 +291,7 @@ while [ $# -gt 0 ]; do
             ;;
         -v|--version)
             echo "docker-pussh, version ${VERSION}"
+            echo "unregistry image: ${UNREGISTRY_IMAGE}"
             exit 0
             ;;
         -*)
