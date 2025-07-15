@@ -7,6 +7,9 @@ fi
 
 VERSION="0.1.3"
 
+# Ensure localhost connections bypass proxy
+export no_proxy="${no_proxy:-},localhost,127.0.0.1"
+
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [ "${1:-}" = "docker-cli-plugin-metadata" ]; then
     cat <<EOF
@@ -154,20 +157,13 @@ find_containerd_socket() {
     )
 
     for socket_path in "${socket_paths[@]}"; do
-        # Try without sudo first, then with sudo
-        if ssh "${SSH_ARGS[@]}" "test -S $socket_path" 2>/dev/null || ssh "${SSH_ARGS[@]}" "sudo test -S $socket_path" 2>/dev/null; then
+        # Try without sudo first, then with sudo if REMOTE_SUDO is set
+        if ssh "${SSH_ARGS[@]}" "test -S $socket_path" 2>/dev/null ||
+           ssh "${SSH_ARGS[@]}" "sudo test -S $socket_path" 2>/dev/null; then
             CONTAINERD_SOCKET="$socket_path"
             return 0
         fi
     done
-
-    # Try to find containerd socket dynamically
-    local found_socket
-    found_socket=$(ssh "${SSH_ARGS[@]}" "find /var/run /run -name 'containerd.sock' -type s 2>/dev/null | head -1" || ssh "${SSH_ARGS[@]}" "sudo find /var/run /run -name 'containerd.sock' -type s 2>/dev/null | head -1" || true)
-    if [ -n "$found_socket" ]; then
-        CONTAINERD_SOCKET="$found_socket"
-        return 0
-    fi
 
     error "Could not find containerd socket on remote host. Please ensure containerd is running."
 }
@@ -423,21 +419,12 @@ if [ -n "$DOCKER_PLATFORM" ]; then
     DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
 fi
 
-# Store original proxy settings and temporarily disable them for localhost connections
-ORIGINAL_HTTP_PROXY="${HTTP_PROXY:-}"
-ORIGINAL_HTTPS_PROXY="${HTTPS_PROXY:-}"
-ORIGINAL_http_proxy="${http_proxy:-}"
-ORIGINAL_https_proxy="${https_proxy:-}"
-
-# Unset proxy variables for the push operation
-unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
-
-# That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
 # Try push with retry logic for connection issues
 PUSH_RETRY_COUNT=3
 PUSH_SUCCESS=false
 
 for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
+    # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
     if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
         PUSH_SUCCESS=true
         break
@@ -449,12 +436,6 @@ for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
     fi
 done
 
-# Restore proxy settings
-export HTTP_PROXY="$ORIGINAL_HTTP_PROXY"
-export HTTPS_PROXY="$ORIGINAL_HTTPS_PROXY"
-export http_proxy="$ORIGINAL_http_proxy"
-export https_proxy="$ORIGINAL_https_proxy"
-
 if [ "$PUSH_SUCCESS" = false ]; then
     error "Failed to push image after $PUSH_RETRY_COUNT attempts."
 fi
@@ -465,8 +446,7 @@ if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | g
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
 
     remote_registry_image="localhost:$UNREGISTRY_PORT/$IMAGE"
-    # Disable proxy on remote host for localhost connections
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy docker pull $remote_registry_image"; then
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $remote_registry_image"; then
         error "Failed to pull image from unregistry on remote host."
     fi
     if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $remote_registry_image $IMAGE"; then
