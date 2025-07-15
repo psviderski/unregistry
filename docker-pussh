@@ -347,7 +347,7 @@ cleanup() {
         ssh "${SSH_ARGS[@]}" -O exit 2>/dev/null || true
     fi
 }
-trap cleanup EXIT
+trap cleanup EXIT SIGINT SIGTERM
 
 info "Connecting to $SSH_ADDRESS..."
 ssh_remote "$SSH_ADDRESS"
