@@ -158,8 +158,9 @@ find_containerd_socket() {
 
     for socket_path in "${socket_paths[@]}"; do
         # Try without sudo first, then with sudo if REMOTE_SUDO is set
-        if ssh "${SSH_ARGS[@]}" "test -S $socket_path" 2>/dev/null ||
-           ssh "${SSH_ARGS[@]}" "sudo test -S $socket_path" 2>/dev/null; then
+        # shellcheck disable=SC2029
+        if ssh "${SSH_ARGS[@]}" "test -S '$socket_path'" 2>/dev/null ||
+           ssh "${SSH_ARGS[@]}" "sudo test -S '$socket_path'" 2>/dev/null; then
             CONTAINERD_SOCKET="$socket_path"
             return 0
         fi
@@ -429,7 +430,7 @@ for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
         PUSH_SUCCESS=true
         break
     else
-        if [ $attempt -lt $PUSH_RETRY_COUNT ]; then
+        if [ "$attempt" -lt $PUSH_RETRY_COUNT ]; then
             warning "Push attempt $attempt failed, retrying in 3 seconds..."
             sleep 3
         fi
