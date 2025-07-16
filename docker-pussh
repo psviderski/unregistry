@@ -321,6 +321,19 @@ if [ -n "$SSH_KEY" ] && [ ! -f "$SSH_KEY" ]; then
     error "SSH key file not found: $SSH_KEY"
 fi
 
+extract_image_name_and_tag() {
+  local regex="^(.*:.*?\/)?(.*\/)?(.*)$"
+  local image_name_tag
+
+  if [[ $IMAGE =~ $regex ]]
+  then
+    image_name_tag=${BASH_REMATCH[3]}
+    echo "$image_name_tag"
+    return 0
+  else
+    error "Error parsing reference $IMAGE is not a valid  repository/tag: invalid reference format"
+  fi
+}
 
 # Function to cleanup resources
 # TODO: review cleanup
@@ -375,8 +388,9 @@ if is_additional_tunneling_needed; then
     success "Additional tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
 fi
 
+IMAGE_NAME_TAG=$(extract_image_name_and_tag)
 # Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE"
+REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE_NAME_TAG"
 docker tag "$IMAGE" "$REGISTRY_IMAGE"
 info "Pushing '$REGISTRY_IMAGE' to unregistry..."
 
@@ -390,20 +404,24 @@ if ! docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAG
     error "Failed to push image."
 fi
 
+REMOTE_REGISTRY_IMAGE=""
 # Pull image from unregistry if remote Docker doesn't uses containerd image store.
 # shellcheck disable=SC2029
 if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
 
-    remote_registry_image="localhost:$UNREGISTRY_PORT/$IMAGE"
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $remote_registry_image"; then
+    REMOTE_REGISTRY_IMAGE="localhost:$UNREGISTRY_PORT/$IMAGE_NAME_TAG"
+    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $REMOTE_REGISTRY_IMAGE"; then
         error "Failed to pull image from unregistry on remote host."
     fi
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $remote_registry_image $IMAGE"; then
-        error "Failed to retag image on remote host $remote_registry_image → $IMAGE"
-    fi
-    ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rmi $remote_registry_image" >/dev/null || true
+else
+    REMOTE_REGISTRY_IMAGE="$REGISTRY_IMAGE"
 fi
+
+if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $REMOTE_REGISTRY_IMAGE $IMAGE"; then
+    error "Failed to retag image on remote host $REMOTE_REGISTRY_IMAGE → $IMAGE"
+fi
+ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rmi $REMOTE_REGISTRY_IMAGE" >/dev/null || true
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
