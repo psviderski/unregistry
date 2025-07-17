@@ -145,10 +145,17 @@ UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
 # Containerd socket path on remote host. It's populated by find_containerd_socket function.
-CONTAINERD_SOCKET=""
+# Can be overridden by setting CONTAINERD_SOCKET environment variable.
+CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}
 
 # Find the containerd socket path on the remote host
+# If no socket is found, keeps the default value to avoid regression
 find_containerd_socket() {
+    # Skip detection if CONTAINERD_SOCKET was explicitly set by user
+    if [ "$CONTAINERD_SOCKET" != "/run/containerd/containerd.sock" ]; then
+        return 0
+    fi
+
     local socket_paths=(
         "/var/run/docker/containerd/containerd.sock"
         "/run/containerd/containerd.sock"
@@ -166,7 +173,8 @@ find_containerd_socket() {
         fi
     done
 
-    error "Could not find containerd socket on remote host. Please ensure containerd is running."
+    # If no socket found, keep the default and let the container startup handle the error
+    # This ensures we don't introduce a regression for users who had working setups
 }
 
 # Run unregistry container on remote host with retry logic for port binding conflicts.
