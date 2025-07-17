@@ -110,12 +110,12 @@ ssh_remote() {
     SSH_ARGS+=("${target}")
 }
 
-# sudo prefix for remote docker commands. It's set to "sudo" if the remote user is not root and requires sudo
+# sudo prefix for remote docker commands. It's set to "sudo -n" if the remote user is not root and requires sudo
 # to run docker commands.
 REMOTE_SUDO=""
 
 # Check if the remote host has Docker installed and if we can run docker commands.
-# If sudo is required, it sets the REMOTE_SUDO variable to "sudo".
+# If sudo is required, it sets the REMOTE_SUDO variable to "sudo -n".
 check_remote_docker() {
     # Check if docker command is available.
     if ! ssh "${SSH_ARGS[@]}" "command -v docker" >/dev/null 2>&1; then
@@ -124,8 +124,8 @@ check_remote_docker() {
     # Check if we need sudo to run docker commands.
     if ! ssh "${SSH_ARGS[@]}" "docker version" >/dev/null 2>&1; then
         # Check if we're not root and if sudo docker works.
-        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo docker version" >/dev/null; then
-            REMOTE_SUDO="sudo"
+        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo -n docker version" >/dev/null; then
+            REMOTE_SUDO="sudo -n"
         else
             error "Failed to run docker commands on remote host. Please ensure:
   - Docker is installed and running on the remote host
@@ -160,7 +160,7 @@ find_containerd_socket() {
         # Try without sudo first, then with sudo if REMOTE_SUDO is set
         # shellcheck disable=SC2029
         if ssh "${SSH_ARGS[@]}" "test -S '$socket_path'" 2>/dev/null ||
-           ssh "${SSH_ARGS[@]}" "sudo test -S '$socket_path'" 2>/dev/null; then
+           ssh "${SSH_ARGS[@]}" "sudo -n test -S '$socket_path'" 2>/dev/null; then
             CONTAINERD_SOCKET="$socket_path"
             return 0
         fi
