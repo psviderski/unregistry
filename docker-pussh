@@ -80,7 +80,7 @@ ssh_remote() {
     local ssh_addr="$1"
     local target port
     # Split out the port component, if exists
-    if [[ "$ssh_addr" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
+    if [[ "${ssh_addr}" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
         target="${BASH_REMATCH[1]}"
         port="${BASH_REMATCH[3]:-}"
     else
@@ -96,17 +96,17 @@ ssh_remote() {
         -o "ConnectTimeout=15"
     )
     # Add port if specified
-    if [[ -n "$port" ]]; then
-        ssh_opts+=(-p "$port")
+    if [[ -n "${port}" ]]; then
+        ssh_opts+=(-p "${port}")
     fi
     # Add SSH key option if provided.
-    if [[ -n "$SSH_KEY" ]]; then
-        ssh_opts+=(-i "$SSH_KEY")
+    if [[ -n "${SSH_KEY}" ]]; then
+        ssh_opts+=(-i "${SSH_KEY}")
     fi
 
     # Establish ControlMaster connection in the background.
     if ! ssh "${ssh_opts[@]}" -f -N "${target}"; then
-        error "Failed to connect to remote host via SSH: $ssh_addr"
+        error "Failed to connect to remote host via SSH: ${ssh_addr}"
     fi
 
     # Populate SSH_ARGS array for reuse in all subsequent commands.
@@ -172,9 +172,9 @@ find_containerd_socket() {
     for socket_path in "${socket_paths[@]}"; do
         # Try without sudo first, then with sudo if REMOTE_SUDO is set
         # shellcheck disable=SC2029
-        if ssh "${SSH_ARGS[@]}" "test -S '$socket_path'" 2>/dev/null ||
-           ssh "${SSH_ARGS[@]}" "sudo -n test -S '$socket_path'" 2>/dev/null; then
-            CONTAINERD_SOCKET="$socket_path"
+        if ssh "${SSH_ARGS[@]}" "test -S '${socket_path}'" 2>/dev/null ||
+           ssh "${SSH_ARGS[@]}" "sudo -n test -S '${socket_path}'" 2>/dev/null; then
+            CONTAINERD_SOCKET="${socket_path}"
             return 0
         fi
     done
@@ -194,42 +194,42 @@ run_unregistry() {
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
     # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker image inspect $UNREGISTRY_IMAGE" >/dev/null 2>&1; then
-        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $UNREGISTRY_IMAGE"
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker image inspect ${UNREGISTRY_IMAGE}" >/dev/null 2>&1; then
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${UNREGISTRY_IMAGE}"
     fi
 
     for _ in {1..10}; do
         UNREGISTRY_PORT=$(random_port)
-        UNREGISTRY_CONTAINER="unregistry-pussh-$$-$UNREGISTRY_PORT"
+        UNREGISTRY_CONTAINER="unregistry-pussh-$$-${UNREGISTRY_PORT}"
 
         # shellcheck disable=SC2029
-        if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
-            --name $UNREGISTRY_CONTAINER \
-            -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
-            -v $CONTAINERD_SOCKET:/run/containerd/containerd.sock \
+        if output=$(ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker run -d \
+            --name ${UNREGISTRY_CONTAINER} \
+            -p 127.0.0.1:${UNREGISTRY_PORT}:5000 \
+            -v ${CONTAINERD_SOCKET}:/run/containerd/containerd.sock \
             --userns=host \
             --user root:root \
-            $UNREGISTRY_IMAGE" 2>&1);
+            ${UNREGISTRY_IMAGE}" 2>&1);
         then
             # Wait a moment for the container to start
             sleep 1
 
             # Verify the container is actually running and healthy
-            if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker ps --filter name=$UNREGISTRY_CONTAINER --filter status=running --quiet" | grep -q .; then
+            if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker ps --filter name=${UNREGISTRY_CONTAINER} --filter status=running --quiet" | grep -q .; then
                 return 0
             fi
         fi
 
         # Remove the container that failed to start if it was created.
         # shellcheck disable=SC2029
-        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
         # Check if the error is due to port binding.
-        if ! echo "$output" | grep -q --ignore-case "bind.*$UNREGISTRY_PORT"; then
-            error "Failed to start unregistry container:\n$output"
+        if ! echo "${output}" | grep -q --ignore-case "bind.*${UNREGISTRY_PORT}"; then
+            error "Failed to start unregistry container:\n${output}"
         fi
     done
 
-    error "Failed to start unregistry container:\n$output"
+    error "Failed to start unregistry container:\n${output}"
 }
 
 # Forward a local port to a remote port over the established SSH connection.
@@ -244,16 +244,16 @@ forward_port() {
 
         # Check if port is already in use locally.
         # TODO: handle the case when nc is not available.
-        if command -v nc >/dev/null && nc -z 127.0.0.1 "$local_port" 2>/dev/null; then
+        if command -v nc >/dev/null && nc -z 127.0.0.1 "${local_port}" 2>/dev/null; then
             continue
         fi
 
-        if output=$(ssh "${SSH_ARGS[@]}" -O forward -L "$local_port:127.0.0.1:$remote_port" 2>&1); then
-            echo "$local_port"
+        if output=$(ssh "${SSH_ARGS[@]}" -O forward -L "${local_port}:127.0.0.1:${remote_port}" 2>&1); then
+            echo "${local_port}"
             return 0
         fi
 
-        error "Failed to forward local port $local_port to remote unregistry port 127.0.0.1:$remote_port: $output"
+        error "Failed to forward local port ${local_port} to remote unregistry port 127.0.0.1:${remote_port}: ${output}"
     done
 
     error "Failed to find an available local port to forward to remote unregistry port. Please try again."
@@ -264,7 +264,7 @@ is_additional_tunneling_needed() {
     # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
     local output
     output=$(docker version 2>/dev/null)
-    echo "$output" | grep -E -q "Docker Desktop|colima" && return 0
+    echo "${output}" | grep -E -q "Docker Desktop|colima" && return 0
     return 1
 }
 
@@ -283,24 +283,24 @@ run_docker_desktop_tunnel() {
         DOCKER_DESKTOP_TUNNEL_PORT=$(random_port)
 
         if output=$(docker run -d --rm \
-            --name "$DOCKER_DESKTOP_TUNNEL_CONTAINER" \
-            -p "127.0.0.1:$DOCKER_DESKTOP_TUNNEL_PORT:5000" \
+            --name "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" \
+            -p "127.0.0.1:${DOCKER_DESKTOP_TUNNEL_PORT}:5000" \
             alpine/socat \
             TCP-LISTEN:5000,fork,reuseaddr \
-            "TCP-CONNECT:host.docker.internal:$host_port" 2>&1);
+            "TCP-CONNECT:host.docker.internal:${host_port}" 2>&1);
         then
             return 0
         fi
 
         # Remove the container that failed to start if it was created.
-        docker rm -f "$DOCKER_DESKTOP_TUNNEL_CONTAINER" >/dev/null 2>&1 || true
+        docker rm -f "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" >/dev/null 2>&1 || true
         # Check if error is due to port binding.
-        if ! echo "$output" | grep -q --ignore-case "bind.*$DOCKER_DESKTOP_TUNNEL_PORT"; then
-            error "Failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
+        if ! echo "${output}" | grep -q --ignore-case "bind.*${DOCKER_DESKTOP_TUNNEL_PORT}"; then
+            error "Failed to create a tunnel from Docker Desktop VM to localhost:${host_port}:\n${output}"
         fi
     done
 
-    error "Failed to create a tunnel from Docker Desktop VM to localhost:$host_port:\n$output"
+    error "Failed to create a tunnel from Docker Desktop VM to localhost:${host_port}:\n${output}"
 }
 
 DOCKER_PLATFORM=""
@@ -319,14 +319,14 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -i|--ssh-key)
             if [[ -z "${2:-}" ]]; then
-                error "-i/--ssh-key option requires an argument.\n$help_command"
+                error "-i/--ssh-key option requires an argument.\n${help_command}"
             fi
             SSH_KEY="$2"
             shift 2
             ;;
         --platform)
             if [[ -z "${2:-}" ]]; then
-                error "--platform option requires an argument.\n$help_command"
+                error "--platform option requires an argument.\n${help_command}"
             fi
             DOCKER_PLATFORM="$2"
             shift 2
@@ -341,17 +341,17 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         -*)
-            error "Unknown option: $1\n$help_command"
+            error "Unknown option: $1\n${help_command}"
             ;;
         *)
             # First non-option argument is the image.
-            if [[ -z "$IMAGE" ]]; then
+            if [[ -z "${IMAGE}" ]]; then
                 IMAGE="$1"
             # Second non-option argument is the SSH address.
-            elif [[ -z "$SSH_ADDRESS" ]]; then
+            elif [[ -z "${SSH_ADDRESS}" ]]; then
                 SSH_ADDRESS="$1"
             else
-                error "Too many arguments.\n$help_command"
+                error "Too many arguments.\n${help_command}"
             fi
             shift
             ;;
@@ -359,12 +359,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required arguments.
-if [[ -z "$IMAGE" ]] || [[ -z "$SSH_ADDRESS" ]]; then
-    error "IMAGE and HOST are required.\n$help_command"
+if [[ -z "${IMAGE}" ]] || [[ -z "${SSH_ADDRESS}" ]]; then
+    error "IMAGE and HOST are required.\n${help_command}"
 fi
 # Validate SSH key file exists if provided.
-if [[ -n "$SSH_KEY" ]] && [[ ! -f "$SSH_KEY" ]]; then
-    error "SSH key file not found: $SSH_KEY"
+if [[ -n "${SSH_KEY}" ]] && [[ ! -f "${SSH_KEY}" ]]; then
+    error "SSH key file not found: ${SSH_KEY}"
 fi
 
 get_temp_image_name() {
@@ -372,7 +372,7 @@ get_temp_image_name() {
   local regex="^(.*:.*?\/)?(.*\/)?(.+)$"
   local repo_with_tag
 
-  if [[ $image =~ $regex ]]; then
+  if [[ ${image} =~ ${regex} ]]; then
     repo_with_tag=${BASH_REMATCH[3]}
     echo "${RANDOM}-${repo_with_tag}"
     return 0
@@ -391,19 +391,19 @@ cleanup() {
     fi
 
     # Remove Docker Desktop tunnel container if exists.
-    if [[ -n "$DOCKER_DESKTOP_TUNNEL_CONTAINER" ]]; then
-        docker rm -f "$DOCKER_DESKTOP_TUNNEL_CONTAINER" >/dev/null 2>&1 || true
+    if [[ -n "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" ]]; then
+        docker rm -f "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
     # Clean up the temporary registry image tag.
     if [[ -n "${REGISTRY_IMAGE:-}" ]]; then
-        docker rmi "$REGISTRY_IMAGE" >/dev/null 2>&1 || true
+        docker rmi "${REGISTRY_IMAGE}" >/dev/null 2>&1 || true
     fi
 
     # Stop and remove unregistry container on remote host.
-    if [[ -n "$UNREGISTRY_CONTAINER" ]]; then
+    if [[ -n "${UNREGISTRY_CONTAINER}" ]]; then
         # shellcheck disable=SC2029
-        ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
     # Terminate the shared SSH connection if it was established.
@@ -413,37 +413,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
-info "Connecting to $SSH_ADDRESS..."
-ssh_remote "$SSH_ADDRESS"
+info "Connecting to ${SSH_ADDRESS}..."
+ssh_remote "${SSH_ADDRESS}"
 check_remote_docker
 
 info "Starting unregistry container on remote host..."
 run_unregistry
-success "Unregistry is listening localhost:$UNREGISTRY_PORT on remote host."
+success "Unregistry is listening localhost:${UNREGISTRY_PORT} on remote host."
 
 # Forward random local port to remote unregistry port through established SSH connection.
-LOCAL_PORT=$(forward_port "$UNREGISTRY_PORT")
-success "Forwarded localhost:$LOCAL_PORT to unregistry over SSH connection."
+LOCAL_PORT=$(forward_port "${UNREGISTRY_PORT}")
+success "Forwarded localhost:${LOCAL_PORT} to unregistry over SSH connection."
 
-PUSH_PORT=$LOCAL_PORT
+PUSH_PORT=${LOCAL_PORT}
 # Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
 # shellcheck disable=SC2310
 if is_additional_tunneling_needed; then
-    info "Detected virtualized Docker, creating additional tunnel to localhost:$LOCAL_PORT..."
-    run_docker_desktop_tunnel "$LOCAL_PORT"
-    PUSH_PORT=$DOCKER_DESKTOP_TUNNEL_PORT
-    success "Additional tunnel created: localhost:$PUSH_PORT → localhost:$LOCAL_PORT"
+    info "Detected virtualized Docker, creating additional tunnel to localhost:${LOCAL_PORT}..."
+    run_docker_desktop_tunnel "${LOCAL_PORT}"
+    PUSH_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
+    success "Additional tunnel created: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
 fi
 
 IMAGE_NAME_TAG=$(get_temp_image_name "${IMAGE}")
 # Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:$PUSH_PORT/$IMAGE_NAME_TAG"
-docker tag "$IMAGE" "$REGISTRY_IMAGE"
-info "Pushing '$REGISTRY_IMAGE' to unregistry..."
+REGISTRY_IMAGE="localhost:${PUSH_PORT}/${IMAGE_NAME_TAG}"
+docker tag "${IMAGE}" "${REGISTRY_IMAGE}"
+info "Pushing '${REGISTRY_IMAGE}' to unregistry..."
 
 DOCKER_PUSH_OPTS=()
-if [[ -n "$DOCKER_PLATFORM" ]]; then
-    DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
+if [[ -n "${DOCKER_PLATFORM}" ]]; then
+    DOCKER_PUSH_OPTS+=("--platform" "${DOCKER_PLATFORM}")
 fi
 
 # Try push with retry logic for connection issues
@@ -453,44 +453,44 @@ PUSH_SLEEP_INTERVAL=3
 
 for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
     # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
-    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
+    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "${REGISTRY_IMAGE}"; then
         PUSH_SUCCESS=true
         break
     else
         if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
-            warning "Push attempt $attempt failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
+            warning "Push attempt ${attempt} failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
             sleep "${PUSH_SLEEP_INTERVAL}"
         fi
     fi
 done
 
-if [[ "$PUSH_SUCCESS" = false ]]; then
-    error "Failed to push image after $PUSH_RETRY_COUNT attempts."
+if [[ "${PUSH_SUCCESS}" = false ]]; then
+    error "Failed to push image after ${PUSH_RETRY_COUNT} attempts."
 fi
 
 REMOTE_REGISTRY_IMAGE=""
 # Pull image from unregistry if remote Docker doesn't uses containerd image store.
 # shellcheck disable=SC2029
-if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
+if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     # Remote image store uses containerd, so we can use the image directly.
-    REMOTE_REGISTRY_IMAGE="$IMAGE_NAME_TAG"
+    REMOTE_REGISTRY_IMAGE="${IMAGE_NAME_TAG}"
 else
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
-    REMOTE_REGISTRY_IMAGE="localhost:$UNREGISTRY_PORT/$IMAGE_NAME_TAG"
-    if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker pull $REMOTE_REGISTRY_IMAGE"; then
+    REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${IMAGE_NAME_TAG}"
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${REMOTE_REGISTRY_IMAGE}"; then
         error "Failed to pull image from unregistry on remote host."
     fi
 fi
 
 # shellcheck disable=SC2029
-if ! ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker tag $REMOTE_REGISTRY_IMAGE $IMAGE"; then
-    error "Failed to retag image on remote host $REMOTE_REGISTRY_IMAGE → $IMAGE"
+if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
+    error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
 fi
 # shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rmi $REMOTE_REGISTRY_IMAGE" >/dev/null || true
+ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null || true
+ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
 
-success "Successfully pushed '$IMAGE' to $SSH_ADDRESS"
+success "Successfully pushed '${IMAGE}' to ${SSH_ADDRESS}"
