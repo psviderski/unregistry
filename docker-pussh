@@ -8,6 +8,9 @@ fi
 # Script version
 VERSION="0.1.3"
 
+# Ensure localhost connections bypass proxy
+export no_proxy="${no_proxy:-},localhost,127.0.0.1"
+
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [ "${1:-}" = "docker-cli-plugin-metadata" ]; then
     cat <<EOF
@@ -111,12 +114,12 @@ ssh_remote() {
     SSH_ARGS+=("${target}")
 }
 
-# sudo prefix for remote docker commands. It's set to "sudo" if the remote user is not root and requires sudo
+# sudo prefix for remote docker commands. It's set to "sudo -n" if the remote user is not root and requires sudo
 # to run docker commands.
 REMOTE_SUDO=""
 
 # Check if the remote host has Docker installed and if we can run docker commands.
-# If sudo is required, it sets the REMOTE_SUDO variable to "sudo".
+# If sudo is required, it sets the REMOTE_SUDO variable to "sudo -n".
 check_remote_docker() {
     # Check if docker command is available.
     if ! ssh "${SSH_ARGS[@]}" "command -v docker" >/dev/null 2>&1; then
@@ -125,8 +128,8 @@ check_remote_docker() {
     # Check if we need sudo to run docker commands.
     if ! ssh "${SSH_ARGS[@]}" "docker version" >/dev/null 2>&1; then
         # Check if we're not root and if sudo docker works.
-        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo docker version" >/dev/null; then
-            REMOTE_SUDO="sudo"
+        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo -n docker version" >/dev/null; then
+            REMOTE_SUDO="sudo -n"
         else
             error "Failed to run docker commands on remote host. Please ensure:
   - Docker is installed and running on the remote host
@@ -145,11 +148,47 @@ random_port() {
 UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
+# Containerd socket path on remote host. It's populated by find_containerd_socket function.
+# Can be overridden by setting CONTAINERD_SOCKET environment variable.
+CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}
+
+# Find the containerd socket path on the remote host
+# If no socket is found, keeps the default value to avoid regression
+find_containerd_socket() {
+    # Skip detection if CONTAINERD_SOCKET was explicitly set by user
+    if [ "$CONTAINERD_SOCKET" != "/run/containerd/containerd.sock" ]; then
+        return 0
+    fi
+
+    local socket_paths=(
+        "/var/run/docker/containerd/containerd.sock"
+        "/run/containerd/containerd.sock"
+        "/var/run/containerd/containerd.sock"
+        "/run/docker/containerd/containerd.sock"
+        "/run/snap.docker/containerd/containerd.sock"
+    )
+
+    for socket_path in "${socket_paths[@]}"; do
+        # Try without sudo first, then with sudo if REMOTE_SUDO is set
+        # shellcheck disable=SC2029
+        if ssh "${SSH_ARGS[@]}" "test -S '$socket_path'" 2>/dev/null ||
+           ssh "${SSH_ARGS[@]}" "sudo -n test -S '$socket_path'" 2>/dev/null; then
+            CONTAINERD_SOCKET="$socket_path"
+            return 0
+        fi
+    done
+
+    # If no socket found, keep the default and let the container startup handle the error
+    # This ensures we don't introduce a regression for users who had working setups
+}
 
 # Run unregistry container on remote host with retry logic for port binding conflicts.
 # Sets UNREGISTRY_PORT and UNREGISTRY_CONTAINER global variables.
 run_unregistry() {
     local output
+
+    # Find containerd socket first
+    find_containerd_socket
 
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
@@ -166,12 +205,22 @@ run_unregistry() {
         if output=$(ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker run -d \
             --name $UNREGISTRY_CONTAINER \
             -p 127.0.0.1:$UNREGISTRY_PORT:5000 \
-            -v /run/containerd/containerd.sock:/run/containerd/containerd.sock \
+            -v $CONTAINERD_SOCKET:/run/containerd/containerd.sock \
             --userns=host \
             --user root:root \
             $UNREGISTRY_IMAGE" 2>&1);
         then
-            return 0
+            # Wait a moment for the container to start
+            sleep 1
+
+            # Verify the container is actually running and healthy
+            if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker ps --filter name=$UNREGISTRY_CONTAINER --filter status=running --quiet" | grep -q .; then
+                return 0
+            else
+                warning "Unregistry container started but is not running properly, retrying..."
+                ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
+                continue
+            fi
         fi
 
         # Remove the container that failed to start if it was created.
@@ -399,9 +448,25 @@ if [ -n "$DOCKER_PLATFORM" ]; then
     DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
 fi
 
-# That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
-if ! docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
-    error "Failed to push image."
+# Try push with retry logic for connection issues
+PUSH_RETRY_COUNT=3
+PUSH_SUCCESS=false
+
+for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
+    # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
+    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
+        PUSH_SUCCESS=true
+        break
+    else
+        if [ "$attempt" -lt $PUSH_RETRY_COUNT ]; then
+            warning "Push attempt $attempt failed, retrying in 3 seconds..."
+            sleep 3
+        fi
+    fi
+done
+
+if [ "$PUSH_SUCCESS" = false ]; then
+    error "Failed to push image after $PUSH_RETRY_COUNT attempts."
 fi
 
 REMOTE_REGISTRY_IMAGE=""
