@@ -12,7 +12,7 @@ VERSION="0.1.3"
 export no_proxy="${no_proxy:-},localhost,127.0.0.1"
 
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
-if [ "${1:-}" = "docker-cli-plugin-metadata" ]; then
+if [[ "${1:-}" = "docker-cli-plugin-metadata" ]]; then
     cat <<EOF
 {
   "SchemaVersion": "0.1.0",
@@ -96,11 +96,11 @@ ssh_remote() {
         -o "ConnectTimeout=15"
     )
     # Add port if specified
-    if [ -n "$port" ]; then
+    if [[ -n "$port" ]]; then
         ssh_opts+=(-p "$port")
     fi
     # Add SSH key option if provided.
-    if [ -n "$SSH_KEY" ]; then
+    if [[ -n "$SSH_KEY" ]]; then
         ssh_opts+=(-i "$SSH_KEY")
     fi
 
@@ -157,7 +157,7 @@ CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-"${DEFAULT_CONTAINERD_SOCKET}"}
 # If no socket is found, keeps the default value to avoid regression
 find_containerd_socket() {
     # Skip detection if CONTAINERD_SOCKET was explicitly set by user
-    if [ "${CONTAINERD_SOCKET}" != "${DEFAULT_CONTAINERD_SOCKET}" ]; then
+    if [[ "${CONTAINERD_SOCKET}" != "${DEFAULT_CONTAINERD_SOCKET}" ]]; then
         return 0
     fi
 
@@ -309,23 +309,23 @@ IMAGE=""
 SSH_ADDRESS=""
 
 # Skip 'pussh' if called as Docker CLI plugin.
-if [ "${1:-}" = "pussh" ]; then
+if [[ "${1:-}" = "pussh" ]]; then
     shift
 fi
 
 # Parse options and arguments.
 help_command="Run 'docker pussh --help' for usage information."
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         -i|--ssh-key)
-            if [ -z "${2:-}" ]; then
+            if [[ -z "${2:-}" ]]; then
                 error "-i/--ssh-key option requires an argument.\n$help_command"
             fi
             SSH_KEY="$2"
             shift 2
             ;;
         --platform)
-            if [ -z "${2:-}" ]; then
+            if [[ -z "${2:-}" ]]; then
                 error "--platform option requires an argument.\n$help_command"
             fi
             DOCKER_PLATFORM="$2"
@@ -345,10 +345,10 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             # First non-option argument is the image.
-            if [ -z "$IMAGE" ]; then
+            if [[ -z "$IMAGE" ]]; then
                 IMAGE="$1"
             # Second non-option argument is the SSH address.
-            elif [ -z "$SSH_ADDRESS" ]; then
+            elif [[ -z "$SSH_ADDRESS" ]]; then
                 SSH_ADDRESS="$1"
             else
                 error "Too many arguments.\n$help_command"
@@ -359,11 +359,11 @@ while [ $# -gt 0 ]; do
 done
 
 # Validate required arguments.
-if [ -z "$IMAGE" ] || [ -z "$SSH_ADDRESS" ]; then
+if [[ -z "$IMAGE" ]] || [[ -z "$SSH_ADDRESS" ]]; then
     error "IMAGE and HOST are required.\n$help_command"
 fi
 # Validate SSH key file exists if provided.
-if [ -n "$SSH_KEY" ] && [ ! -f "$SSH_KEY" ]; then
+if [[ -n "$SSH_KEY" ]] && [[ ! -f "$SSH_KEY" ]]; then
     error "SSH key file not found: $SSH_KEY"
 fi
 
@@ -386,28 +386,28 @@ get_temp_image_name() {
 cleanup() {
     local exit_code=$?
 
-    if [ "${exit_code}" -ne 0 ]; then
+    if [[ "${exit_code}" -ne 0 ]]; then
         warning "Cleaning up after error..."
     fi
 
     # Remove Docker Desktop tunnel container if exists.
-    if [ -n "$DOCKER_DESKTOP_TUNNEL_CONTAINER" ]; then
+    if [[ -n "$DOCKER_DESKTOP_TUNNEL_CONTAINER" ]]; then
         docker rm -f "$DOCKER_DESKTOP_TUNNEL_CONTAINER" >/dev/null 2>&1 || true
     fi
 
     # Clean up the temporary registry image tag.
-    if [ -n "${REGISTRY_IMAGE:-}" ]; then
+    if [[ -n "${REGISTRY_IMAGE:-}" ]]; then
         docker rmi "$REGISTRY_IMAGE" >/dev/null 2>&1 || true
     fi
 
     # Stop and remove unregistry container on remote host.
-    if [ -n "$UNREGISTRY_CONTAINER" ]; then
+    if [[ -n "$UNREGISTRY_CONTAINER" ]]; then
         # shellcheck disable=SC2029
         ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
     fi
 
     # Terminate the shared SSH connection if it was established.
-    if [ ${#SSH_ARGS[@]} -ne 0 ]; then
+    if [[ ${#SSH_ARGS[@]} -ne 0 ]]; then
         ssh "${SSH_ARGS[@]}" -O exit 2>/dev/null || true
     fi
 }
@@ -442,7 +442,7 @@ docker tag "$IMAGE" "$REGISTRY_IMAGE"
 info "Pushing '$REGISTRY_IMAGE' to unregistry..."
 
 DOCKER_PUSH_OPTS=()
-if [ -n "$DOCKER_PLATFORM" ]; then
+if [[ -n "$DOCKER_PLATFORM" ]]; then
     DOCKER_PUSH_OPTS+=("--platform" "$DOCKER_PLATFORM")
 fi
 
@@ -457,14 +457,14 @@ for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
         PUSH_SUCCESS=true
         break
     else
-        if [ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]; then
+        if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
             warning "Push attempt $attempt failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
             sleep "${PUSH_SLEEP_INTERVAL}"
         fi
     fi
 done
 
-if [ "$PUSH_SUCCESS" = false ]; then
+if [[ "$PUSH_SUCCESS" = false ]]; then
     error "Failed to push image after $PUSH_RETRY_COUNT attempts."
 fi
 
