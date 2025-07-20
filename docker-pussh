@@ -148,15 +148,16 @@ random_port() {
 UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
+DEFAULT_CONTAINERD_SOCKET="/run/containerd/containerd.sock"
 # Containerd socket path on remote host. It's populated by find_containerd_socket function.
 # Can be overridden by setting CONTAINERD_SOCKET environment variable.
-CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}
+CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-"${DEFAULT_CONTAINERD_SOCKET}"}
 
 # Find the containerd socket path on the remote host
 # If no socket is found, keeps the default value to avoid regression
 find_containerd_socket() {
     # Skip detection if CONTAINERD_SOCKET was explicitly set by user
-    if [ "$CONTAINERD_SOCKET" != "/run/containerd/containerd.sock" ]; then
+    if [ "${CONTAINERD_SOCKET}" != "${DEFAULT_CONTAINERD_SOCKET}" ]; then
         return 0
     fi
 
@@ -216,10 +217,6 @@ run_unregistry() {
             # Verify the container is actually running and healthy
             if ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker ps --filter name=$UNREGISTRY_CONTAINER --filter status=running --quiet" | grep -q .; then
                 return 0
-            else
-                warning "Unregistry container started but is not running properly, retrying..."
-                ssh "${SSH_ARGS[@]}" "$REMOTE_SUDO docker rm -f $UNREGISTRY_CONTAINER" >/dev/null 2>&1 || true
-                continue
             fi
         fi
 
@@ -451,6 +448,7 @@ fi
 # Try push with retry logic for connection issues
 PUSH_RETRY_COUNT=3
 PUSH_SUCCESS=false
+PUSH_SLEEP_INTERVAL=3
 
 for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
     # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
@@ -459,8 +457,8 @@ for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
         break
     else
         if [ "$attempt" -lt $PUSH_RETRY_COUNT ]; then
-            warning "Push attempt $attempt failed, retrying in 3 seconds..."
-            sleep 3
+            warning "Push attempt $attempt failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
+            sleep "${PUSH_SLEEP_INTERVAL}"
         fi
     fi
 done
