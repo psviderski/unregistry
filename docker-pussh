@@ -161,6 +161,7 @@ find_containerd_socket() {
         "/run/containerd/containerd.sock"
         "/var/run/containerd/containerd.sock"
         "/run/docker/containerd/containerd.sock"
+        "/run/snap.docker/containerd/containerd.sock"
     )
 
     for socket_path in "${socket_paths[@]}"; do
