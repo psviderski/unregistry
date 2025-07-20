@@ -7,7 +7,7 @@ cleanup() {
 
     # Terminate the main process if it has been started.
     if [ -n "${MAIN_PID:-}" ]; then
-        kill "$MAIN_PID" 2>/dev/null || true
+        kill "${MAIN_PID}" 2>/dev/null || true
     fi
 
     # Terminate Docker daemon if PID file exists.

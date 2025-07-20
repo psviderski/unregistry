@@ -5,7 +5,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${SCRIPT_DIR}/.."
 
 # Ensure a new version argument is provided
-if [ "$#" -lt 1 ]; then
+if [[ "$#" -lt 1 ]]; then
     echo "Usage: ${0} <new-version> [--execute]"
     exit 1
 fi
@@ -19,14 +19,14 @@ if ! git diff-index --quiet HEAD --; then
 fi
 
 # Check if the --execute flag is passed
-if [ "${2:-}" == "--execute" ]; then
+if [[ "${2:-}" == "--execute" ]]; then
     EXECUTE=1
 else
     echo "Dry-run mode: No changes will be committed or tagged. Use '--execute' to apply changes."
 fi
 
 # Validate semantic version format
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if ! [[ "${NEW_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Error: Version must be in semantic format (e.g., 1.2.3)"
     exit 1
 fi
@@ -44,14 +44,14 @@ echo -e "Changes pending:\n---"
 git diff
 echo "---"
 
-TAG_NAME="v$NEW_VERSION"
+TAG_NAME="v${NEW_VERSION}"
 COMMIT_MESSAGE="release: Bump version to ${NEW_VERSION}"
 
 echo "Building the project with goreleaser..."
 goreleaser build --clean --snapshot
 echo "Project built successfully."
 
-if [ "$EXECUTE" = "1" ]; then
+if [[ "${EXECUTE}" = "1" ]]; then
     echo "Executing changes..."
     git add -u
     git commit -m "${COMMIT_MESSAGE}"
