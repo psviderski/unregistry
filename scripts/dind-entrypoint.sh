@@ -33,4 +33,4 @@ dind dockerd --host=tcp://0.0.0.0:2375 --tls=false &
 # Execute the passed command and wait for it while maintaining signal handling.
 "$@" &
 MAIN_PID=$!
-wait $MAIN_PID
+wait "${MAIN_PID}"

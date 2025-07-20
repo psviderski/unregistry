@@ -162,8 +162,8 @@ find_containerd_socket() {
     fi
 
     local socket_paths=(
+        "${DEFAULT_CONTAINERD_SOCKET}"
         "/var/run/docker/containerd/containerd.sock"
-        "/run/containerd/containerd.sock"
         "/var/run/containerd/containerd.sock"
         "/run/docker/containerd/containerd.sock"
         "/run/snap.docker/containerd/containerd.sock"
@@ -386,7 +386,7 @@ get_temp_image_name() {
 cleanup() {
     local exit_code=$?
 
-    if [ $exit_code -ne 0 ]; then
+    if [ "${exit_code}" -ne 0 ]; then
         warning "Cleaning up after error..."
     fi
 
@@ -425,8 +425,9 @@ success "Unregistry is listening localhost:$UNREGISTRY_PORT on remote host."
 LOCAL_PORT=$(forward_port "$UNREGISTRY_PORT")
 success "Forwarded localhost:$LOCAL_PORT to unregistry over SSH connection."
 
-# Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
 PUSH_PORT=$LOCAL_PORT
+# Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
+# shellcheck disable=SC2310
 if is_additional_tunneling_needed; then
     info "Detected virtualized Docker, creating additional tunnel to localhost:$LOCAL_PORT..."
     run_docker_desktop_tunnel "$LOCAL_PORT"
@@ -450,13 +451,13 @@ PUSH_RETRY_COUNT=3
 PUSH_SUCCESS=false
 PUSH_SLEEP_INTERVAL=3
 
-for attempt in $(seq 1 $PUSH_RETRY_COUNT); do
+for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
     # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
     if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "$REGISTRY_IMAGE"; then
         PUSH_SUCCESS=true
         break
     else
-        if [ "$attempt" -lt $PUSH_RETRY_COUNT ]; then
+        if [ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]; then
             warning "Push attempt $attempt failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
             sleep "${PUSH_SLEEP_INTERVAL}"
         fi
