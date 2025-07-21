@@ -369,11 +369,11 @@ fi
 
 get_temp_image_name() {
   local image=$1
-  local regex="^(.*:.*?\/)?(.*\/)?(.+)$"
+  local regex="^(([^.]+\.)+[^:/]+(:[0-9]+)?/)?([^/]+/)*(.+)$"
   local repo_with_tag
 
   if [[ ${image} =~ ${regex} ]]; then
-    repo_with_tag=${BASH_REMATCH[3]}
+    repo_with_tag=${BASH_REMATCH[5]}
     echo "${RANDOM}-${repo_with_tag}"
     return 0
   else
