@@ -54,20 +54,31 @@ error() {
 }
 
 usage() {
-    echo "Usage: docker pussh [OPTIONS] IMAGE[:TAG] [USER@]HOST[:PORT]"
+    echo "Usage:"
+    echo "  docker pussh [OPTIONS] IMAGE[:TAG] [USER@]HOST[:PORT]     # Push mode"
+    echo "  docker pussh [OPTIONS] [USER@]HOST[:PORT] IMAGE[:TAG]     # Pull mode"
     echo ""
-    echo "Upload a Docker image to a remote Docker daemon via SSH without an external registry."
+    echo "Transfer Docker images between local and remote Docker daemons via SSH without an external registry."
+    echo ""
+    echo "Push mode: Upload a local Docker image to a remote Docker daemon."
+    echo "Pull mode: Download a Docker image from a remote Docker daemon to local."
     echo ""
     echo "Options:"
     echo "  -h, --help              Show this help message."
     echo "  -i, --ssh-key path      Path to SSH private key for remote login (if not already added to SSH agent)."
-    echo "      --platform string   Push a specific platform for a multi-platform image (e.g., linux/amd64, linux/arm64)."
+    echo "      --platform string   Push/pull a specific platform for a multi-platform image (e.g., linux/amd64, linux/arm64)."
     echo "                          Local Docker has to use containerd image store to support multi-platform images."
     echo ""
     echo "Examples:"
+    echo "  # Push mode - upload local image to remote host"
     echo "  docker pussh myimage:latest user@host"
     echo "  docker pussh --platform linux/amd64 myimage:latest host"
     echo "  docker pussh myimage:latest user@host:2222 -i ~/.ssh/id_ed25519"
+    echo ""
+    echo "  # Pull mode - download image from remote host"
+    echo "  docker pussh user@host myimage:latest"
+    echo "  docker pussh --platform linux/amd64 host myimage:latest"
+    echo "  docker pussh user@host:2222 myimage:latest -i ~/.ssh/id_ed25519"
 }
 
 # SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
@@ -307,6 +318,7 @@ DOCKER_PLATFORM=""
 SSH_KEY=""
 IMAGE=""
 SSH_ADDRESS=""
+MODE=""  # "push" or "pull"
 
 # Skip 'pussh' if called as Docker CLI plugin.
 if [[ "${1:-}" = "pussh" ]]; then
@@ -344,10 +356,10 @@ while [[ $# -gt 0 ]]; do
             error "Unknown option: $1\n${help_command}"
             ;;
         *)
-            # First non-option argument is the image.
+            # First non-option argument
             if [[ -z "${IMAGE}" ]]; then
                 IMAGE="$1"
-            # Second non-option argument is the SSH address.
+            # Second non-option argument
             elif [[ -z "${SSH_ADDRESS}" ]]; then
                 SSH_ADDRESS="$1"
             else
@@ -358,9 +370,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate required arguments.
+# Determine operation mode and validate arguments
 if [[ -z "${IMAGE}" ]] || [[ -z "${SSH_ADDRESS}" ]]; then
-    error "IMAGE and HOST are required.\n${help_command}"
+    error "Two arguments are required.\n${help_command}"
+fi
+
+# Detect mode based on argument pattern
+# If first argument looks like SSH address (contains @ or is hostname/IP), it's pull mode
+# Otherwise, it's push mode (first arg is image, second is SSH address)
+if [[ "${IMAGE}" =~ ^[^@]+@[^@]+$ ]] || [[ "${IMAGE}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]] || [[ "${IMAGE}" =~ ^[a-zA-Z0-9.-]+$ && ! "${IMAGE}" =~ : ]]; then
+    # Pull mode: ./docker-pussh remote_host local_image
+    MODE="pull"
+    temp_ssh="${IMAGE}"      # First arg is SSH address
+    temp_image="${SSH_ADDRESS}"  # Second arg is local image name
+    SSH_ADDRESS="${temp_ssh}"      # SSH address for connection
+    IMAGE="${temp_image}"          # Local image name (same as remote image name)
+else
+    # Push mode: ./docker-pussh local_image remote_host
+    MODE="push"
+    # IMAGE and SSH_ADDRESS are already in correct positions
 fi
 # Validate SSH key file exists if provided.
 if [[ -n "${SSH_KEY}" ]] && [[ ! -f "${SSH_KEY}" ]]; then
@@ -417,80 +445,178 @@ info "Connecting to ${SSH_ADDRESS}..."
 ssh_remote "${SSH_ADDRESS}"
 check_remote_docker
 
-info "Starting unregistry container on remote host..."
-run_unregistry
-success "Unregistry is listening localhost:${UNREGISTRY_PORT} on remote host."
+if [[ "${MODE}" == "push" ]]; then
+    # Push mode: upload local image to remote host
+    info "Starting unregistry container on remote host..."
+    run_unregistry
+    success "Unregistry is listening localhost:${UNREGISTRY_PORT} on remote host."
 
-# Forward random local port to remote unregistry port through established SSH connection.
-LOCAL_PORT=$(forward_port "${UNREGISTRY_PORT}")
-success "Forwarded localhost:${LOCAL_PORT} to unregistry over SSH connection."
+    # Forward random local port to remote unregistry port through established SSH connection.
+    LOCAL_PORT=$(forward_port "${UNREGISTRY_PORT}")
+    success "Forwarded localhost:${LOCAL_PORT} to unregistry over SSH connection."
 
-PUSH_PORT=${LOCAL_PORT}
-# Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
-# shellcheck disable=SC2310
-if is_additional_tunneling_needed; then
-    info "Detected virtualized Docker, creating additional tunnel to localhost:${LOCAL_PORT}..."
-    run_docker_desktop_tunnel "${LOCAL_PORT}"
-    PUSH_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
-    success "Additional tunnel created: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
-fi
+    PUSH_PORT=${LOCAL_PORT}
+    # Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
+    # shellcheck disable=SC2310
+    if is_additional_tunneling_needed; then
+        info "Detected virtualized Docker, creating additional tunnel to localhost:${LOCAL_PORT}..."
+        run_docker_desktop_tunnel "${LOCAL_PORT}"
+        PUSH_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
+        success "Additional tunnel created: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
+    fi
 
-IMAGE_NAME_TAG=$(get_temp_image_name "${IMAGE}")
-# Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:${PUSH_PORT}/${IMAGE_NAME_TAG}"
-docker tag "${IMAGE}" "${REGISTRY_IMAGE}"
-info "Pushing '${REGISTRY_IMAGE}' to unregistry..."
+    IMAGE_NAME_TAG=$(get_temp_image_name "${IMAGE}")
+    # Tag and push the image to unregistry through the forwarded port.
+    REGISTRY_IMAGE="localhost:${PUSH_PORT}/${IMAGE_NAME_TAG}"
+    docker tag "${IMAGE}" "${REGISTRY_IMAGE}"
+    info "Pushing '${REGISTRY_IMAGE}' to unregistry..."
 
-DOCKER_PUSH_OPTS=()
-if [[ -n "${DOCKER_PLATFORM}" ]]; then
-    DOCKER_PUSH_OPTS+=("--platform" "${DOCKER_PLATFORM}")
-fi
+    DOCKER_PUSH_OPTS=()
+    if [[ -n "${DOCKER_PLATFORM}" ]]; then
+        DOCKER_PUSH_OPTS+=("--platform" "${DOCKER_PLATFORM}")
+    fi
 
-# Try push with retry logic for connection issues
-PUSH_RETRY_COUNT=3
-PUSH_SUCCESS=false
-PUSH_SLEEP_INTERVAL=3
+    # Try push with retry logic for connection issues
+    PUSH_RETRY_COUNT=3
+    PUSH_SUCCESS=false
+    PUSH_SLEEP_INTERVAL=3
 
-for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
-    # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
-    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "${REGISTRY_IMAGE}"; then
-        PUSH_SUCCESS=true
-        break
+    for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
+        # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
+        if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "${REGISTRY_IMAGE}"; then
+            PUSH_SUCCESS=true
+            break
+        else
+            if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
+                warning "Push attempt ${attempt} failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
+                sleep "${PUSH_SLEEP_INTERVAL}"
+            fi
+        fi
+    done
+
+    if [[ "${PUSH_SUCCESS}" = false ]]; then
+        error "Failed to push image after ${PUSH_RETRY_COUNT} attempts."
+    fi
+
+    REMOTE_REGISTRY_IMAGE=""
+    # Pull image from unregistry if remote Docker doesn't uses containerd image store.
+    # shellcheck disable=SC2029
+    if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
+        # Remote image store uses containerd, so we can use the image directly.
+        REMOTE_REGISTRY_IMAGE="${IMAGE_NAME_TAG}"
     else
-        if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
-            warning "Push attempt ${attempt} failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
-            sleep "${PUSH_SLEEP_INTERVAL}"
+        info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
+        REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${IMAGE_NAME_TAG}"
+        if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${REMOTE_REGISTRY_IMAGE}"; then
+            error "Failed to pull image from unregistry on remote host."
         fi
     fi
-done
 
-if [[ "${PUSH_SUCCESS}" = false ]]; then
-    error "Failed to push image after ${PUSH_RETRY_COUNT} attempts."
-fi
-
-REMOTE_REGISTRY_IMAGE=""
-# Pull image from unregistry if remote Docker doesn't uses containerd image store.
-# shellcheck disable=SC2029
-if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
-    # Remote image store uses containerd, so we can use the image directly.
-    REMOTE_REGISTRY_IMAGE="${IMAGE_NAME_TAG}"
-else
-    info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
-    REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${IMAGE_NAME_TAG}"
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${REMOTE_REGISTRY_IMAGE}"; then
-        error "Failed to pull image from unregistry on remote host."
+    # shellcheck disable=SC2029
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
+        error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
     fi
+    # shellcheck disable=SC2029
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
+
+    info "Removing unregistry container on remote host..."
+    # shellcheck disable=SC2029
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
+
+    success "Successfully pushed '${IMAGE}' to ${SSH_ADDRESS}"
+
+elif [[ "${MODE}" == "pull" ]]; then
+    # Pull mode: download remote image to local host
+    # In pull mode, IMAGE contains the image name (same for remote and local)
+    # First, check if the remote image exists
+    # shellcheck disable=SC2029
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker image inspect ${IMAGE}" >/dev/null 2>&1; then
+        error "Image '${IMAGE}' not found on remote host."
+    fi
+
+    info "Starting unregistry container on remote host..."
+    run_unregistry
+    success "Unregistry is listening localhost:${UNREGISTRY_PORT} on remote host."
+
+    # Forward random local port to remote unregistry port through established SSH connection.
+    LOCAL_PORT=$(forward_port "${UNREGISTRY_PORT}")
+    success "Forwarded localhost:${LOCAL_PORT} to unregistry over SSH connection."
+
+    # Get a temporary image name for the remote image
+    REMOTE_IMAGE_NAME_TAG=$(get_temp_image_name "${IMAGE}")
+
+    # Tag the remote image with unregistry prefix and push it to unregistry
+    # shellcheck disable=SC2029
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${IMAGE} localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE_NAME_TAG}"; then
+        error "Failed to tag remote image for unregistry."
+    fi
+
+    # Push the image to unregistry on remote host
+    info "Pushing remote image to unregistry..."
+    # shellcheck disable=SC2029
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker push localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE_NAME_TAG}"; then
+        error "Failed to push remote image to unregistry."
+    fi
+
+    PULL_PORT=${LOCAL_PORT}
+    # Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
+    # shellcheck disable=SC2310
+    if is_additional_tunneling_needed; then
+        info "Detected virtualized Docker, creating additional tunnel to localhost:${LOCAL_PORT}..."
+        run_docker_desktop_tunnel "${LOCAL_PORT}"
+        PULL_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
+        success "Additional tunnel created: localhost:${PULL_PORT} → localhost:${LOCAL_PORT}"
+    fi
+
+    # Pull the image from unregistry to local Docker
+    LOCAL_REGISTRY_IMAGE="localhost:${PULL_PORT}/${REMOTE_IMAGE_NAME_TAG}"
+    info "Pulling '${LOCAL_REGISTRY_IMAGE}' from unregistry..."
+
+    DOCKER_PULL_OPTS=()
+    if [[ -n "${DOCKER_PLATFORM}" ]]; then
+        DOCKER_PULL_OPTS+=("--platform" "${DOCKER_PLATFORM}")
+    fi
+
+    # Try pull with retry logic for connection issues
+    PULL_RETRY_COUNT=3
+    PULL_SUCCESS=false
+    PULL_SLEEP_INTERVAL=3
+
+    for attempt in $(seq 1 "${PULL_RETRY_COUNT}"); do
+        # That DOCKER_PULL_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
+        if docker pull ${DOCKER_PULL_OPTS[@]+"${DOCKER_PULL_OPTS[@]}"} "${LOCAL_REGISTRY_IMAGE}"; then
+            PULL_SUCCESS=true
+            break
+        else
+            if [[ "${attempt}" -lt "${PULL_RETRY_COUNT}" ]]; then
+                warning "Pull attempt ${attempt} failed, retrying in ${PULL_SLEEP_INTERVAL} seconds..."
+                sleep "${PULL_SLEEP_INTERVAL}"
+            fi
+        fi
+    done
+
+    if [[ "${PULL_SUCCESS}" = false ]]; then
+        error "Failed to pull image after ${PULL_RETRY_COUNT} attempts."
+    fi
+
+    # Tag the pulled image with the desired local name
+    if ! docker tag "${LOCAL_REGISTRY_IMAGE}" "${IMAGE}"; then
+        error "Failed to tag local image ${LOCAL_REGISTRY_IMAGE} → ${IMAGE}"
+    fi
+
+    # Clean up the temporary registry image tag
+    docker rmi "${LOCAL_REGISTRY_IMAGE}" >/dev/null || true
+
+    # Clean up the temporary tag on remote host
+    # shellcheck disable=SC2029
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE_NAME_TAG}" >/dev/null || true
+
+    info "Removing unregistry container on remote host..."
+    # shellcheck disable=SC2029
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
+
+    success "Successfully pulled '${IMAGE}' from remote host"
+
+else
+    error "Unknown mode: ${MODE}"
 fi
-
-# shellcheck disable=SC2029
-if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
-    error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
-fi
-# shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
-
-info "Removing unregistry container on remote host..."
-# shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
-
-success "Successfully pushed '${IMAGE}' to ${SSH_ADDRESS}"
