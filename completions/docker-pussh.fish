@@ -1,11 +1,8 @@
 ## To be able to use the docker-pussh as a script and not as a pluging while still having completion
-
 function _docker-pussh_image_completions
-    set -l docker_image (__fish_nth_token 1)
     printf "%s\n" (docker image ls --format '{{.Repository}}:{{.Tag}}')
 end
 function _docker-pussh_ssh_host_completions
-    set -l ssh_host (__fish_nth_token 2)
     set -l ssh_config_files ~/.ssh/config ~/.ssh/config.d/*
     set -l ssh_known_hosts ~/.ssh/known_hosts
 
