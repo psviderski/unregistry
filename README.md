@@ -120,7 +120,7 @@ curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pu
 chmod +x ~/.docker/cli-plugins/docker-pussh
 ```
 
-### Debian 
+### Debian
 
 Via unofficial repository packages created and maintained at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
 
@@ -144,6 +144,45 @@ with the above Linux instructions.
 
 ```shell
 docker pussh --help
+```
+
+## Completions
+
+### Bash
+
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker-pussh-completion \
+  -o /etc/bash_completion.d/docker-pussh-completion
+
+# To be able to use it in current shell
+source /etc/bash_completion.d/docker-pussh-completion
+```
+
+### Zsh
+Add the following to your .zshrc file:
+```shell
+autoload -U +X compinit && compinit
+autoload -U +X bashcompinit && bashcompinit
+source /etc/bash_completion.d/docker-pussh-completion
+```
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker-pussh-completion \
+  -o /etc/bash_completion.d/docker-pussh-completion
+
+# To be able to use it in current shell
+source ~/.zshrc
+```
+
+### Fish
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker.fish \
+  -o /etc/fish/completions/
+
+# To be able to use it in current shell
+source ~/.config/fish/config.fish
 ```
 
 ## ⚠️ Containerd image store configuration
