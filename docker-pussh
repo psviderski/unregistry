@@ -368,17 +368,18 @@ if [[ -n "${SSH_KEY}" ]] && [[ ! -f "${SSH_KEY}" ]]; then
 fi
 
 get_temp_image_name() {
-  local image=$1
-  local regex="^(.*:.*?\/)?(.*\/)?(.+)$"
-  local repo_with_tag
-
-  if [[ ${image} =~ ${regex} ]]; then
-    repo_with_tag=${BASH_REMATCH[3]}
-    echo "${RANDOM}-${repo_with_tag}"
-    return 0
-  else
-    error "Error parsing reference: ${image} is not a valid image reference."
-  fi
+    echo "$1"
+#  local image=$1
+#  local regex="^(.*:.*?\/)?(.*\/)?(.+)$"
+#  local repo_with_tag
+#
+#  if [[ ${image} =~ ${regex} ]]; then
+#    repo_with_tag=${BASH_REMATCH[3]}
+#    echo "${RANDOM}-${repo_with_tag}"
+#    return 0
+#  else
+#    error "Error parsing reference: ${image} is not a valid image reference."
+#  fi
 }
 
 # Function to cleanup resources
