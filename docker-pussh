@@ -371,10 +371,17 @@ get_temp_image_name() {
   local image=$1
   local regex="^(([^.]+\.)+[^:/]+(:[0-9]+)?/)?([^/]+/)*(.+)$"
   local repo_with_tag
+  local host_with_port
+  local namespace
 
   if [[ ${image} =~ ${regex} ]]; then
     repo_with_tag=${BASH_REMATCH[5]}
-    echo "${RANDOM}-${repo_with_tag}"
+    # host:port is changed to host-port to be used as a namespace while pushing to unregistry.
+    # also it is changed to something deterministic to help the cleaning of containerd
+    host_with_port=${BASH_REMATCH[1]/:/-}
+    namespace=${BASH_REMATCH[4]}
+
+    echo "${host_with_port%/}${host_with_port:+-}${namespace%/}${namespace:+-}${repo_with_tag}"
     return 0
   else
     error "Error parsing reference: ${image} is not a valid image reference."
