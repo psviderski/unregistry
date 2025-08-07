@@ -75,9 +75,15 @@ It's like `rsync` for Docker images — simple and efficient.
     - For air-gapped environments or where the access to [ghcr.io](https://ghcr.io) is restricted, you can preload the
       image manually:
       ```shell
+      # Get the needed unregistry image version from the plugin version output
+      docker pussh --version
+      # Will return:
+      #   ...
+      #   unregistry image: ghcr.io/psviderski/unregistry:X.Y.Z
+
       # On a machine with internet access
-      docker pull ghcr.io/psviderski/unregistry:latest
-      docker save ghcr.io/psviderski/unregistry:latest | ssh user@server docker load
+      docker pull ghcr.io/psviderski/unregistry:X.Y.Z
+      docker save ghcr.io/psviderski/unregistry:X.Y.Z | ssh user@server docker load
       ```
 - Unregistry container requires access to the containerd socket at `/run/containerd/containerd.sock`, so the container
   runs as `root` to have the necessary permissions
@@ -120,7 +126,7 @@ curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/main/docker-pu
 chmod +x ~/.docker/cli-plugins/docker-pussh
 ```
 
-### Debian 
+### Debian
 
 Via unofficial repository packages created and maintained at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
 
@@ -208,6 +214,12 @@ Push a specific platform for a multi-platform image. The local Docker has to use
 
 ```shell
 docker pussh myapp:latest user@server --platform linux/amd64
+```
+
+Use a specific unregistry image version on the remote host:
+
+```shell
+UNREGISTRY_IMAGE=ghcr.io/psviderski/unregistry:A.B.C docker pussh myapp:latest user@server.example.com
 ```
 
 ## Use cases
