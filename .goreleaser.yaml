@@ -25,6 +25,7 @@ archives:
   - id: script
     files:
       - ./docker-pussh
+      - ./completions/*
 
 changelog:
   sort: asc
