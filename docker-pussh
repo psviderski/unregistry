@@ -470,7 +470,7 @@ if [[ "${PUSH_SUCCESS}" = false ]]; then
 fi
 
 REMOTE_REGISTRY_IMAGE=""
-# Pull image from unregistry if remote Docker doesn't uses containerd image store.
+# Pull image from unregistry if remote Docker doesn't use containerd image store.
 # shellcheck disable=SC2029
 if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     # Remote image store uses containerd, so we can use the image directly.
@@ -481,14 +481,14 @@ else
     if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${REMOTE_REGISTRY_IMAGE}"; then
         error "Failed to pull image from unregistry on remote host."
     fi
-fi
 
-# shellcheck disable=SC2029
-if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
-    error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
+    # shellcheck disable=SC2029
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
+        error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
+    fi
+    # shellcheck disable=SC2029
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
 fi
-# shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
