@@ -111,7 +111,7 @@ Download the current version:
 mkdir -p ~/.docker/cli-plugins
 
 # Download the script to the docker plugins directory
-curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.1/docker-pussh \
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.2/docker-pussh \
   -o ~/.docker/cli-plugins/docker-pussh
 
 # Make it executable
