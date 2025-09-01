@@ -119,16 +119,16 @@ func TestRegistryPushPull(t *testing.T) {
 	t.Run("docker push/pull single-platform image", func(t *testing.T) {
 		t.Parallel()
 
-		imageName := "busybox:1.37.0-musl"
+		imageName := "traefik/whoami:v1.11.0"
 		registryImage := fmt.Sprintf("%s/%s", registryAddr, imageName)
 		platform := "linux/amd64"
 		ociPlatform := ocispec.Platform{Architecture: "amd64", OS: "linux"}
-		indexDigest := "sha256:597bf7e5e8faf26b8efc4cb558eea5dc14d9cc97d5b4c8cdbe6404a7432d5a67"
-		platformDigest := "sha256:008f65c96291274170bec5cf01b2de06dc049dc9d8f9bfb633520497875ed2c1"
+		indexDigest := "sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab"
+		platformDigest := "sha256:4f90b33ddca9c4d4f06527070d6e503b16d71016edea036842be2a84e60c91cb"
 		// Local image digest for the platform when *not* using containerd image store.
-		dockerLocalDigest := "sha256:7da29d4d35b82e4412a41afd99398c64cc94d58fb5a701c73c684ed22201a14b"
+		dockerLocalDigest := "sha256:6fee7566e4273ee6078f08e167e36434b35f72152232a5e6f1446288817dabe5"
 		// Manifest digest created by 'docker push' when *not* using containerd image store.
-		dockerDistribDigest := "sha256:f6e9a69f79d3bb745090d8bcd1d17ed24c1993d013d7b5b536fb7d0b61018ad7"
+		dockerDistribDigest := "sha256:4f90b33ddca9c4d4f06527070d6e503b16d71016edea036842be2a84e60c91cb"
 
 		t.Cleanup(
 			func() {
@@ -332,17 +332,17 @@ func TestRegistryPushPull(t *testing.T) {
 	t.Run("docker pull from partially available multi-platform image", func(t *testing.T) {
 		t.Parallel()
 
-		imageName := "busybox:1.37.0-glibc"
+		imageName := "traefik/whoami:v1.10.4"
 		registryImage := fmt.Sprintf("%s/%s", registryAddr, imageName)
-		indexDigest := "sha256:210ce53959959e79523b8cb0f0bb1cf1c49bf9747cdedb47db1cf0db8e642f61"
-		amd64Digest := "sha256:7c0ffe5751238c8479f952f3fbc3b719d47bccac0e9bf0a21c77a27cba9ef12d"
-		arm64Digest := "sha256:68a0d55a75c935e1101d16ded1c748babb7f96a9af43f7533ba83b87e2508b82"
-		amd64DockerDigest := "sha256:6d3e4188a38af91b0c1577b9e88c53368926b2fe0e1fb985d6e8a70040520c4d"
-		arm64DockerDigest := "sha256:7b4721e214600044496305a20ca3902677e572127d4d976ed0e54da0137c243a"
+		indexDigest := "sha256:1699d99cb4b9acc17f74ca670b3d8d0b7ba27c948b3445f0593b58ebece92f04"
+		amd64Digest := "sha256:02d8fe035f170f91cbb5e458a57f4cefab747436f8244a0eb2d66785fe5e565f"
+		arm64Digest := "sha256:fd9d367a04f2a76b784d2a0c84933d4cf463a464d3aa4cdec8dba49772cf041d"
+		amd64DockerDigest := "sha256:9943fa5dfa160113993257e13b514a9d55065aa86a8fcabbf66359d8cf9e1ba5"
+		arm64DockerDigest := "sha256:088bc76bf19570c774f349e3df96ff77391536eab86c9adff4426de8e2dd5f2c"
 
 		// This image has multiple platforms, we'll pull only 2 of them in remote Docker.
-		availablePlatforms := []string{"linux/amd64", "linux/arm64/v8"}
-		missingPlatform := "linux/arm/v7"
+		availablePlatforms := []string{"linux/amd64", "linux/arm64"}
+		missingPlatform := "linux/arm/v8"
 
 		t.Cleanup(func() {
 			_, err := localCli.ImageRemove(ctx, registryImage, image.RemoveOptions{PruneChildren: true})
@@ -377,7 +377,7 @@ func TestRegistryPushPull(t *testing.T) {
 				if platform == "linux/amd64" {
 					assert.Equal(t, amd64DockerDigest, img.ID,
 						"Image ID for platform '%s' should match digest", platform)
-				} else if platform == "linux/arm64/v8" {
+				} else if platform == "linux/arm64" {
 					assert.Equal(t, arm64DockerDigest, img.ID,
 						"Image ID for platform '%s' should match digest", platform)
 				}
@@ -405,11 +405,11 @@ func TestRegistryPushPull(t *testing.T) {
 
 			assert.True(t, slices.ContainsFunc(summary[0].Manifests, func(m image.ManifestSummary) bool {
 				if m.ID == arm64Digest {
-					assert.True(t, m.Available, "Image content for linux/arm64/v8 should be available", arm64Digest)
+					assert.True(t, m.Available, "Image content for linux/arm64 should be available", arm64Digest)
 					return true
 				}
 				return false
-			}), "Image for linux/arm64/v8 should be available")
+			}), "Image for linux/arm64 should be available")
 		}
 
 		// Test 2: Pull missing platform - should fail with "not found".
