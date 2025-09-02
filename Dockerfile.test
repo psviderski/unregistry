@@ -21,7 +21,10 @@ FROM docker:28.3.3-dind AS unregistry-dind
 
 ENV UNREGISTRY_CONTAINERD_SOCK="/run/docker/containerd/containerd.sock"
 
+RUN apk add --no-cache openssh && ssh-keygen -A && mkdir /root/.ssh
+
 COPY scripts/dind-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY test/e2e/ssh/test_key.pub /root/.ssh/authorized_keys
 COPY --from=builder /build/unregistry /usr/local/bin/
 
 EXPOSE 5000

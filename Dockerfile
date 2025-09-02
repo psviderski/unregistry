@@ -24,4 +24,3 @@ EXPOSE 5000
 # Run as root user by default to allow access to the containerd socket. This in unfortunate as running as non-root user
 # requires changing the containerd socket permissions which still can be manually done by advanced users.
 ENTRYPOINT ["unregistry"]
-

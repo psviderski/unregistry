@@ -15,6 +15,11 @@ cleanup() {
         kill "$(cat /run/docker.pid)" 2>/dev/null || true
     fi
 
+    # Terminate SSH daemon if PID file exists.
+    if [ -f /run/sshd.pid ]; then
+        kill "$(cat /run/sshd.pid)" 2>/dev/null || true
+    fi
+
     # Wait for processes to terminate.
     wait
 }
@@ -28,7 +33,8 @@ else
     echo "Using the default Docker image store."
 fi
 
-dind dockerd --host=tcp://0.0.0.0:2375 --tls=false &
+dind dockerd --host unix:///run/docker.sock --host=tcp://0.0.0.0:2375 --tls=false &
+/usr/sbin/sshd -o AllowTcpForwarding=yes
 
 # Execute the passed command and wait for it while maintaining signal handling.
 "$@" &

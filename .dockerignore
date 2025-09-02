@@ -6,6 +6,7 @@
 !internal/
 !scripts/
 !go.*
+!test/e2e/ssh/test_key.pub
 
 # Ignore unnecessary files inside allowed directories.
 **/.DS_Store
