@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -97,6 +98,10 @@ func TestDockerPusshPlugin(t *testing.T) {
 			root := projectRoot()
 			dockerPusshPath := filepath.Join(root, "docker-pussh")
 			sshKeyPath := filepath.Join(root, "test/e2e/ssh/test_key")
+
+			// Change permission of the ssh key to 0600 to avoid SSH WARNING: UNPROTECTED PRIVATE KEY FILE!
+			require.NoError(t, os.Chmod(sshKeyPath, 0600), "Failed to change permission of SSH key")
+
 			cmd := exec.Command(dockerPusshPath,
 				"-i", sshKeyPath,
 				"--no-host-key-check",
