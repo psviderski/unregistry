@@ -17,7 +17,7 @@ RUN go build -o unregistry ./cmd/unregistry
 
 
 # Unregistry in Docker-in-Docker image for e2e tests.
-FROM docker:28.2.2-dind AS unregistry-dind
+FROM docker:28.3.3-dind AS unregistry-dind
 
 ENV UNREGISTRY_CONTAINERD_SOCK="/run/docker/containerd/containerd.sock"
 

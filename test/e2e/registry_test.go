@@ -414,13 +414,7 @@ func TestRegistryPushPull(t *testing.T) {
 
 		// Test 2: Pull missing platform - should fail with "not found".
 		err = pullImage(ctx, localCli, registryImage, image.PullOptions{Platform: missingPlatform})
-		if localDockerUsesContainerdImageStore {
-			// This is a weird behavior (bug?) of containerd image store. It returns "Image is up to date"
-			// for missing platform.
-			assert.NoError(t, err, "Pulling missing platform '%s' should succeed with Image is up to date")
-		} else {
-			assert.ErrorContains(t, err, "not found", "Pulling missing platform '%s' should fail with 'not found'")
-		}
+		assert.ErrorContains(t, err, "not found", "Pulling missing platform '%s' should fail with 'not found'")
 	})
 
 	t.Run("docker push/pull image with external registry prefix", func(t *testing.T) {
