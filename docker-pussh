@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
+if [[ "${DEBUG:-}" == "1" || "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
     set -x
 fi
 
@@ -42,22 +42,23 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # no color
+BOLD='\033[1m'
+RST='\033[0m' # reset formatting
 
 info() {
-    echo -e " ${BLUE}•${NC} $1"
+    echo -e " ${BLUE}•${RST} $1"
 }
 
 success() {
-    echo -e " ${GREEN}✓${NC} $1"
+    echo -e " ${GREEN}✓${RST} $1"
 }
 
 warning() {
-    echo -e " ${YELLOW}!${NC} $1"
+    echo -e " ${YELLOW}!${RST} $1"
 }
 
 error() {
-    echo -e "${RED}ERROR:${NC} $1" >&2
+    echo -e "${RED}ERROR:${RST} $1" >&2
     exit 1
 }
 
@@ -383,23 +384,22 @@ if [[ -n "${SSH_KEY}" ]] && [[ ! -f "${SSH_KEY}" ]]; then
     error "SSH key file not found: ${SSH_KEY}"
 fi
 
-get_temp_image_name() {
-    echo "$1"
-#  local image=$1
-#  local regex="^(.*:.*?\/)?(.*\/)?(.+)$"
-#  local repo_with_tag
-#
-#  if [[ ${image} =~ ${regex} ]]; then
-#    repo_with_tag=${BASH_REMATCH[3]}
-#    echo "${RANDOM}-${repo_with_tag}"
-#    return 0
-#  else
-#    error "Error parsing reference: ${image} is not a valid image reference."
-#  fi
+# Replace colon in the registry part of the image name with dash to make it a valid Docker image name component.
+# For example, "localhost:5000/myimage" -> "localhost-5000/myimage"
+normalise_registry_port() {
+    local image=$1
+
+    # Check if there's a port in registry address (colon followed by digits before the first slash).
+    if [[ "${image}" =~ ^([^/]+):([0-9]+)(/.*)$ ]]; then
+        # Replace the colon with a dash.
+        echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+    else
+        # No port found, return as-is.
+        echo "${image}"
+    fi
 }
 
-# Function to cleanup resources
-# TODO: review cleanup
+# Clean up resources on exit, including on errors. Uses global variables to determine what needs to be cleaned up.
 cleanup() {
     local exit_code=$?
 
@@ -446,17 +446,17 @@ PUSH_PORT=${LOCAL_PORT}
 # Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
 # shellcheck disable=SC2310
 if is_additional_tunneling_needed; then
-    info "Detected virtualized Docker, creating additional tunnel to localhost:${LOCAL_PORT}..."
+    info "Detected virtualised Docker locally, creating additional tunnel to localhost:${LOCAL_PORT}..."
     run_docker_desktop_tunnel "${LOCAL_PORT}"
     PUSH_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
     success "Additional tunnel created: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
 fi
 
-IMAGE_NAME_TAG=$(get_temp_image_name "${IMAGE}")
+REMOTE_IMAGE=$(normalise_registry_port "${IMAGE}")
 # Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:${PUSH_PORT}/${IMAGE_NAME_TAG}"
+REGISTRY_IMAGE="localhost:${PUSH_PORT}/${REMOTE_IMAGE}"
 docker tag "${IMAGE}" "${REGISTRY_IMAGE}"
-info "Pushing '${REGISTRY_IMAGE}' to unregistry..."
+info "Pushing ${REGISTRY_IMAGE} to unregistry..."
 
 DOCKER_PUSH_OPTS=()
 if [[ -n "${DOCKER_PLATFORM}" ]]; then
@@ -485,29 +485,35 @@ if [[ "${PUSH_SUCCESS}" = false ]]; then
     error "Failed to push image after ${PUSH_RETRY_COUNT} attempts."
 fi
 
-REMOTE_REGISTRY_IMAGE=""
+REMOTE_RETAG_IMAGE=""
+if [[ "${REMOTE_IMAGE}" != "${IMAGE}" ]]; then
+    REMOTE_RETAG_IMAGE="${REMOTE_IMAGE}"
+fi
+
 # Pull image from unregistry if remote Docker doesn't use containerd image store.
 # shellcheck disable=SC2029
-if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
-    # Remote image store uses containerd, so we can use the image directly.
-    REMOTE_REGISTRY_IMAGE="${IMAGE_NAME_TAG}"
-else
+if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
-    REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${IMAGE_NAME_TAG}"
+    REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE}"
     if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker pull ${REMOTE_REGISTRY_IMAGE}"; then
         error "Failed to pull image from unregistry on remote host."
     fi
+    REMOTE_RETAG_IMAGE="${REMOTE_REGISTRY_IMAGE}"
+fi
 
+# Retag the image to the original name if needed and remove the temporary tag.
+if [[ -n "${REMOTE_RETAG_IMAGE}" ]]; then
     # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
-        error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker tag ${REMOTE_RETAG_IMAGE} ${IMAGE}"; then
+        error "Failed to retag image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
     fi
     # shellcheck disable=SC2029
-    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_REGISTRY_IMAGE}" >/dev/null || true
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rmi ${REMOTE_RETAG_IMAGE}" >/dev/null || true
+    success "Retagged image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
 fi
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
 ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
 
-success "Successfully pushed '${IMAGE}' to ${SSH_ADDRESS}"
+success "Successfully pushed ${BOLD}${IMAGE}${RST} to ${BOLD}${SSH_ADDRESS}${RST}"
