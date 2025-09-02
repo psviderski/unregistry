@@ -8,9 +8,6 @@ fi
 # Script version
 VERSION="0.2.2"
 
-# Ensure localhost connections bypass proxy
-export no_proxy="${no_proxy:-},localhost,127.0.0.1"
-
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [[ "${1:-}" = "docker-cli-plugin-metadata" ]]; then
     cat <<EOF
@@ -28,6 +25,17 @@ fi
 # so we want to avoid unnecessary pulls of the latest image version.
 UNREGISTRY_VERSION=0.1.3
 UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${UNREGISTRY_VERSION}}
+
+DEFAULT_CONTAINERD_SOCKET="/run/containerd/containerd.sock"
+# Containerd socket path on remote host. It's populated by find_containerd_socket function.
+# Can be overridden by setting CONTAINERD_SOCKET environment variable.
+CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-"${DEFAULT_CONTAINERD_SOCKET}"}
+# SSH strict host key checking mode. Can be set to "yes", "no", "ask", or "accept-new".
+# Default is to use the SSH client's default behavior.
+SSH_STRICT_HOST_KEY_CHECKING=${SSH_STRICT_HOST_KEY_CHECKING:-}
+
+# Ensure localhost connections bypass proxy.
+export no_proxy="${no_proxy:-},localhost,127.0.0.1"
 
 # Colors and symbols for output.
 RED='\033[0;31m'
@@ -61,6 +69,7 @@ usage() {
     echo "Options:"
     echo "  -h, --help              Show this help message."
     echo "  -i, --ssh-key path      Path to SSH private key for remote login (if not already added to SSH agent)."
+    echo "      --no-host-key-check Skip SSH host key checking (use with caution)."
     echo "      --platform string   Push a specific platform for a multi-platform image (e.g., linux/amd64, linux/arm64)."
     echo "                          Local Docker has to use containerd image store to support multi-platform images."
     echo ""
@@ -102,6 +111,13 @@ ssh_remote() {
     # Add SSH key option if provided.
     if [[ -n "${SSH_KEY}" ]]; then
         ssh_opts+=(-i "${SSH_KEY}")
+    fi
+    # Configure SSH host key checking if requested.
+    if [[ -n "${SSH_STRICT_HOST_KEY_CHECKING}" ]]; then
+        ssh_opts+=(-o "StrictHostKeyChecking=${SSH_STRICT_HOST_KEY_CHECKING}")
+        if [[ "${SSH_STRICT_HOST_KEY_CHECKING}" == "no" ]]; then
+            ssh_opts+=(-o "UserKnownHostsFile=/dev/null")
+        fi
     fi
 
     # Establish ControlMaster connection in the background.
@@ -148,10 +164,6 @@ random_port() {
 UNREGISTRY_CONTAINER=""
 # Unregistry port on the remote host that is bound to localhost. It's populated by run_unregistry function.
 UNREGISTRY_PORT=""
-DEFAULT_CONTAINERD_SOCKET="/run/containerd/containerd.sock"
-# Containerd socket path on remote host. It's populated by find_containerd_socket function.
-# Can be overridden by setting CONTAINERD_SOCKET environment variable.
-CONTAINERD_SOCKET=${CONTAINERD_SOCKET:-"${DEFAULT_CONTAINERD_SOCKET}"}
 
 # Find the containerd socket path on the remote host
 # If no socket is found, keeps the default value to avoid regression
@@ -323,6 +335,10 @@ while [[ $# -gt 0 ]]; do
             fi
             SSH_KEY="$2"
             shift 2
+            ;;
+        --no-host-key-check)
+            SSH_STRICT_HOST_KEY_CHECKING="no"
+            shift
             ;;
         --platform)
             if [[ -z "${2:-}" ]]; then
