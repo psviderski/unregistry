@@ -16,9 +16,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// runUnregistryDinD starts unregistry in a Docker-in-Docker container. It returns the mapped Docker
-// port and the mapped unregistry port. The containerdStore parameter specifies whether to use containerd image store.
-func runUnregistryDinD(t *testing.T, containerdStore bool) (string, string) {
+// runUnregistryDinD starts unregistry in a Docker-in-Docker container. It returns the mapped Docker and SSH ports.
+// The containerdStore parameter specifies whether to use containerd image store.
+func runUnregistryDinD(t *testing.T, mappedRegistryPort int, containerdStore bool) (string, string) {
 	ctx := context.Background()
 	// Start unregistry in a Docker-in-Docker container with Docker using containerd image store.
 	req := testcontainers.GenericContainerRequest{
@@ -37,8 +37,9 @@ func runUnregistryDinD(t *testing.T, containerdStore bool) (string, string) {
 			Privileged: true,
 			// Explicitly specify the host port for the registry because if not specified, 'docker push' from Docker
 			// Desktop is unable to reach the automatically mapped one for some reason.
-			ExposedPorts: []string{"2375", "50000:5000"},
+			ExposedPorts: []string{"22", "2375", fmt.Sprintf("%d:5000", mappedRegistryPort)},
 			WaitingFor: wait.ForAll(
+				wait.ForListeningPort("22"),
 				wait.ForListeningPort("2375"),
 				wait.ForListeningPort("5000"),
 			).WithStartupTimeoutDefault(15 * time.Second),
@@ -80,8 +81,8 @@ func runUnregistryDinD(t *testing.T, containerdStore bool) (string, string) {
 
 	mappedDockerPort, err := ctr.MappedPort(ctx, "2375")
 	require.NoError(t, err)
-	mappedRegistryPort, err := ctr.MappedPort(ctx, "5000")
+	mappedSSHPort, err := ctr.MappedPort(ctx, "22")
 	require.NoError(t, err)
 
-	return mappedDockerPort.Port(), mappedRegistryPort.Port()
+	return mappedDockerPort.Port(), mappedSSHPort.Port()
 }

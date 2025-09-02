@@ -26,18 +26,20 @@ import (
 	"github.com/docker/docker/client"
 )
 
-func TestRegistryPushPull(t *testing.T) {
+func TestUnregistryPushPull(t *testing.T) {
 	ctx := context.Background()
-	mappedDockerPort, mappedRegistryPort := runUnregistryDinD(t, true)
+
+	registryPort := 50000
+	dockerPort, _ := runUnregistryDinD(t, registryPort, true)
 
 	remoteCli, err := client.NewClientWithOpts(
-		client.WithHost("tcp://localhost:"+mappedDockerPort),
+		client.WithHost("tcp://localhost:"+dockerPort),
 		client.WithAPIVersionNegotiation(),
 	)
 	require.NoError(t, err)
 	defer remoteCli.Close()
 
-	registryAddr := "localhost:" + mappedRegistryPort
+	registryAddr := fmt.Sprintf("localhost:%d", registryPort)
 	t.Logf("Unregistry started at %s", registryAddr)
 
 	localCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -62,8 +64,6 @@ func TestRegistryPushPull(t *testing.T) {
 		platformDigest := "sha256:4f90b33ddca9c4d4f06527070d6e503b16d71016edea036842be2a84e60c91cb"
 		// Local image digest for the platform when *not* using containerd image store.
 		dockerLocalDigest := "sha256:6fee7566e4273ee6078f08e167e36434b35f72152232a5e6f1446288817dabe5"
-		// Manifest digest created by 'docker push' when *not* using containerd image store.
-		dockerDistribDigest := "sha256:4f90b33ddca9c4d4f06527070d6e503b16d71016edea036842be2a84e60c91cb"
 
 		t.Cleanup(
 			func() {
@@ -104,11 +104,7 @@ func TestRegistryPushPull(t *testing.T) {
 
 		img, _, err = remoteCli.ImageInspectWithRaw(ctx, imageName)
 		require.NoError(t, err, "Pushed image should appear in the remote Docker")
-		if localDockerUsesContainerdImageStore {
-			assert.Equal(t, platformDigest, img.ID, "Image ID should match platform-specific image digest")
-		} else {
-			assert.Equal(t, dockerDistribDigest, img.ID, "Image ID should match Docker distribution digest")
-		}
+		assert.Equal(t, platformDigest, img.ID, "Image ID should match platform-specific image digest")
 
 		// Push the same image to test that it doesn't push the same layer again.
 		output, err = pushImage(ctx, localCli, registryImage, image.PushOptions{Platform: &ociPlatform})
