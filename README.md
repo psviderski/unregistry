@@ -24,7 +24,8 @@ You've built a Docker image locally. Now you need it on your server. Your option
 
 - **Docker Hub / GitHub Container Registry** - Your code is now public, or you're paying for private repos
 - **Self-hosted registry** - Another service to maintain, secure, and pay for storage
-- **Save/Load** - `docker save | ssh <remote server> docker load` transfers the entire image, even if 90% already exists on the server
+- **Save/Load** - `docker save | ssh <remote server> docker load` transfers the entire image, even if 90% already exists
+  on the server
 - **Rebuild remotely** - Wastes time and server resources. Plus now you're debugging why the build fails in production
 
 You just want to move an image from A to B. Why is this so hard?
@@ -128,7 +129,8 @@ chmod +x ~/.docker/cli-plugins/docker-pussh
 
 ### Debian
 
-Via unofficial repository packages created and maintained at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
+Via unofficial repository packages created and maintained
+at [unregistry-debian](https://github.com/dariogriffo/unregistry-debian/) by @dariogriffo
 
 You can install unregistry the debian way by running:
 
@@ -281,6 +283,12 @@ Host prod-server
 # Now just use
 docker pussh myapp:latest prod-server
 ```
+
+## Third-party projects
+
+- https://github.com/SonOfBytes/unregistry-action - GitHub Action to push Docker images to remote servers using
+  `docker-pussh` plugin for Docker CLI
+- https://github.com/RezaKargar/setup-unregistry - GitHub Action to install `docker-pussh` plugin for Docker CLI
 
 ## Contributing
 
