@@ -8,10 +8,10 @@ import (
 
 	"github.com/distribution/distribution/v3/configuration"
 	"github.com/distribution/distribution/v3/registry/handlers"
+	// Register filesystem storage driver.
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/filesystem"
+	"github.com/psviderski/unregistry/internal/storage/containerd"
 	"github.com/sirupsen/logrus"
-	"github.com/uncloud/unregistry/internal/storage/containerd"
-	_ "github.com/uncloud/unregistry/internal/storage/containerd"
 )
 
 // Registry represents a complete instance of the registry.

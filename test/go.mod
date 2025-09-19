@@ -1,4 +1,4 @@
-module github.com/uncloud/unregistry/test/e2e
+module github.com/psviderski/unregistry/test/e2e
 
 go 1.24
 

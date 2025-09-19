@@ -1,4 +1,4 @@
-module github.com/uncloud/unregistry
+module github.com/psviderski/unregistry
 
 go 1.24
 
