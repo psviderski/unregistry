@@ -6,7 +6,7 @@ if [[ "${DEBUG:-}" == "1" || "${UNREGISTRY_DEBUG:-}" == "1" ]]; then
 fi
 
 # Script version
-VERSION="0.3.0"
+VERSION="0.3.1"
 
 # Return metadata expected by the Docker CLI plugin framework: https://github.com/docker/cli/pull/1564
 if [[ "${1:-}" = "docker-cli-plugin-metadata" ]]; then
