@@ -10,11 +10,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/uncloud/unregistry/internal/registry"
+	"github.com/uncloud/unregistry"
 )
 
 func main() {
-	var cfg registry.Config
+	var cfg unregistry.Config
 	cmd := &cobra.Command{
 		Use:   "unregistry",
 		Short: "A container registry that uses local Docker/containerd for storing images.",
@@ -59,8 +59,8 @@ Key use cases:
 	}
 }
 
-func run(cfg registry.Config) error {
-	reg, err := registry.NewRegistry(cfg)
+func run(cfg unregistry.Config) error {
+	reg, err := unregistry.NewRegistry(cfg)
 	if err != nil {
 		return fmt.Errorf("create registry server: %w", err)
 	}

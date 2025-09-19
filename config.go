@@ -1,4 +1,4 @@
-package registry
+package unregistry
 
 // Config represents the registry configuration.
 type Config struct {
