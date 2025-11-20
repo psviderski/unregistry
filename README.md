@@ -289,6 +289,8 @@ docker pussh myapp:latest prod-server
 - https://github.com/SonOfBytes/unregistry-action - GitHub Action to push Docker images to remote servers using
   `docker-pussh` plugin for Docker CLI
 - https://github.com/RezaKargar/setup-unregistry - GitHub Action to install `docker-pussh` plugin for Docker CLI
+- https://github.com/iloveitaly/docker-image-cleanup - Python tool to manage Docker images in self-hosted registries by
+  automatically removing outdated images while preserving recent and actively used ones
 
 ## Contributing
 

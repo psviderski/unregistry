@@ -258,7 +258,7 @@ run_unregistry() {
         # shellcheck disable=SC2029
         ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_CMD} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
         # Check if the error is due to port binding.
-        if ! echo "${output}" | grep -q --ignore-case "bind.*${UNREGISTRY_PORT}"; then
+        if ! echo "${output}" | grep -q --ignore-case "bind"; then
             error "Failed to start unregistry container:\n${output}"
         fi
     done
