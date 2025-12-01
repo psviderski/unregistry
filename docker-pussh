@@ -153,6 +153,7 @@ check_remote_docker() {
 
     # Check each path until we find one that works
     for path in "${docker_paths[@]}"; do
+        # shellcheck disable=SC2029
         if ssh "${SSH_ARGS[@]}" "test -x '${path}' 2>/dev/null || command -v '${path}'" >/dev/null 2>&1; then
             REMOTE_DOCKER_CMD="${path}"
             break
@@ -164,8 +165,10 @@ check_remote_docker() {
         error "'docker' command not found on remote host. Please ensure Docker is installed."
     fi
     # Check if we need sudo to run docker commands.
+    # shellcheck disable=SC2029
     if ! ssh "${SSH_ARGS[@]}" "${REMOTE_DOCKER_CMD} version" >/dev/null 2>&1; then
         # Check if we're not root and if sudo docker works.
+        # shellcheck disable=SC2029
         if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo -n ${REMOTE_DOCKER_CMD} version" >/dev/null; then
             REMOTE_SUDO="sudo -n"
         else
@@ -435,7 +438,7 @@ cleanup() {
     # Stop and remove unregistry container on remote host.
     if [[ -n "${UNREGISTRY_CONTAINER}" ]]; then
         # shellcheck disable=SC2029
-        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} docker rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_CMD} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
     # Terminate the shared SSH connection if it was established.
