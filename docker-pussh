@@ -245,13 +245,7 @@ run_unregistry() {
             --user root:root \
             ${UNREGISTRY_IMAGE}" 2>&1);
         then
-            # Wait a moment for the container to start
-            sleep 1
-
-            # Verify the container is actually running and healthy
-            if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_CMD} ps --filter name=${UNREGISTRY_CONTAINER} --filter status=running --quiet" | grep -q .; then
-                return 0
-            fi
+            return 0
         fi
 
         # Remove the container that failed to start if it was created.
