@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,8 @@ import (
 )
 
 const leaseExpiration = 1 * time.Hour
+
+var writeLock sync.Mutex
 
 // blobWriter is a resumable blob uploader to the containerd content store.
 // Implements distribution.BlobWriter.
@@ -58,7 +61,24 @@ func newBlobWriter(
 
 	// Open a containerd content writer with the lease.
 	ctx = leases.WithLease(ctx, lease.ID)
-	writer, err := client.ContentStore().Writer(ctx, content.WithRef("upload-"+id))
+
+	var writer content.Writer
+	// Retry opening the writer if it's locked. This can happen if the previous writer hasn't been closed yet
+	// (e.g. due to a network disconnect or client retry).
+	for i := 0; i < 10; i++ {
+		writer, err = client.ContentStore().Writer(ctx, content.WithRef("upload-"+id))
+		if err == nil {
+			break
+		}
+
+		if !errdefs.IsUnavailable(err) {
+			break
+		}
+
+		// Wait before retrying.
+		time.Sleep(time.Duration(i+1) * 100 * time.Millisecond)
+	}
+
 	if err != nil {
 		_ = client.LeasesService().Delete(ctx, lease)
 		return nil, fmt.Errorf("create containerd content writer: %w", err)
@@ -106,21 +126,49 @@ func (bw *blobWriter) Size() int64 {
 
 // ReadFrom reads from the provided reader and writes to the containerd blob writer.
 func (bw *blobWriter) ReadFrom(r io.Reader) (int64, error) {
-	n, err := io.Copy(bw.writer, r)
-	bw.size += n
+	// We implement the copy loop manually to allow serializing writes to containerd
+	// while keeping reads from the network parallel.
+	buf := make([]byte, 32*1024)
+	var total int64
+	for {
+		nr, er := r.Read(buf)
+		if nr > 0 {
+			writeLock.Lock()
+			nw, ew := bw.writer.Write(buf[0:nr])
+			writeLock.Unlock()
 
-	log := bw.log.WithField("size", n)
-	if err != nil {
-		err = fmt.Errorf("copy data to containerd blob writer: %w", err)
-		log = log.WithError(err)
+			if nw > 0 {
+				total += int64(nw)
+				bw.size += int64(nw)
+			}
+			if ew != nil {
+				err := fmt.Errorf("write data to containerd blob writer: %w", ew)
+				bw.log.WithField("size", total).WithError(err).Error("Failed to write data to containerd")
+				return total, err
+			}
+			if nr != nw {
+				return total, io.ErrShortWrite
+			}
+		}
+		if er != nil {
+			if er == io.EOF {
+				break
+			}
+			err := fmt.Errorf("read data for containerd blob writer: %w", er)
+			bw.log.WithField("size", total).WithError(err).Error("Failed to read data")
+			return total, err
+		}
 	}
-	log.Debug("Copied data to containerd blob writer.")
 
-	return n, err
+	bw.log.WithField("size", total).Debug("Copied data to containerd blob writer.")
+	return total, nil
 }
 
 // Write writes data to the containerd blob writer.
 func (bw *blobWriter) Write(data []byte) (int, error) {
+	writeLock.Lock()
+	defer writeLock.Unlock()
+
 	n, err := bw.writer.Write(data)
 	bw.size += int64(n)
 
