@@ -101,7 +101,7 @@ func (b *blobStore) Put(ctx context.Context, mediaType string, blob []byte) (dis
 	return desc, nil
 }
 
-// Create creates a blob writer to add a blob to the containerd content store.`
+// Create creates a blob writer to add a blob to the containerd content store.
 func (b *blobStore) Create(ctx context.Context, _ ...distribution.BlobCreateOption) (
 	distribution.BlobWriter, error,
 ) {

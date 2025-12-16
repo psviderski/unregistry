@@ -58,7 +58,7 @@ func newBlobWriter(
 
 	// Open a containerd content writer with the lease.
 	ctx = leases.WithLease(ctx, lease.ID)
-	writer, err := client.ContentStore().Writer(ctx, content.WithRef("upload-"+id))
+	writer, err := content.OpenWriter(ctx, client.ContentStore(), content.WithRef("upload-"+id))
 	if err != nil {
 		_ = client.LeasesService().Delete(ctx, lease)
 		return nil, fmt.Errorf("create containerd content writer: %w", err)
