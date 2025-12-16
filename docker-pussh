@@ -23,7 +23,7 @@ fi
 
 # Pin the unregistry image version. The image doesn't change too often compared to the script,
 # so we want to avoid unnecessary pulls of the latest image version.
-UNREGISTRY_VERSION=0.1.3
+UNREGISTRY_VERSION=0.4.1
 UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${UNREGISTRY_VERSION}}
 
 # Docker command path on remote host.
