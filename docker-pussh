@@ -26,6 +26,8 @@ fi
 UNREGISTRY_VERSION=0.4.1
 UNREGISTRY_IMAGE=${UNREGISTRY_IMAGE:-ghcr.io/psviderski/unregistry:${UNREGISTRY_VERSION}}
 
+REMOTE_ENV_VARS="${REMOTE_ENV_VARS:+${REMOTE_ENV_VARS} }"
+
 # Docker command path on remote host.
 # Set by check_remote_docker function if not overridden by the environment variable.
 REMOTE_DOCKER_PATH=${REMOTE_DOCKER_PATH:-""}
@@ -79,6 +81,7 @@ usage() {
     echo "                            Local Docker has to use containerd image store to support multi-platform images."
     echo ""
     echo "Environment variables:"
+    echo "  REMOTE_ENV_VARS           Any additional variables required on remote host (default: '')"
     echo "  REMOTE_DOCKER_PATH        Path to docker binary on remote host (default: auto-detected)."
     echo "  REMOTE_CONTAINERD_SOCKET  Path to containerd socket on remote host (default: auto-detected)."
     echo "  UNREGISTRY_IMAGE          Unregistry image to use on remote host (default: ${UNREGISTRY_IMAGE})."
@@ -91,6 +94,11 @@ usage() {
     echo "  # Set custom docker binary path and containerd socket on remote host:"
     echo "  REMOTE_DOCKER_PATH=/usr/local/bin/docker REMOTE_CONTAINERD_SOCKET=/var/run/docker/containerd/containerd.sock \\"
     echo "    docker pussh myimage:1.2.3 user@host"
+    echo ""
+    echo "  # Set additional environment variables required by remote host:"
+    echo "  REMOTE_ENV_VARS='DOCKER_HOST=unix:///run/user/1001/docker.sock' REMOTE_DOCKER_PATH=/usr/local/bin/docker \\"
+    echo "   REMOTE_CONTAINERD_SOCKET=/var/run/docker/containerd/containerd.sock \\"
+    echo "   docker pussh myimage:1.2.3 user@host"
 }
 
 # SSH command arguments to be used for all ssh commands after establishing a shared "master" connection
@@ -154,7 +162,7 @@ check_remote_docker() {
     if [[ -n "${REMOTE_DOCKER_PATH}" ]]; then
         # Check if the specified docker path exists and is executable.
         # shellcheck disable=SC2029
-        if ! ssh "${SSH_ARGS[@]}" "test -x '${REMOTE_DOCKER_PATH}' 2>/dev/null || command -v '${REMOTE_DOCKER_PATH}'" >/dev/null 2>&1; then
+        if ! ssh "${SSH_ARGS[@]}" "${REMOTE_ENV_VARS}test -x '${REMOTE_DOCKER_PATH}' 2>/dev/null || command -v '${REMOTE_DOCKER_PATH}'" >/dev/null 2>&1; then
             error "'docker' command not found at specified \$REMOTE_DOCKER_PATH: ${REMOTE_DOCKER_PATH}"
         fi
     else
@@ -174,7 +182,7 @@ check_remote_docker() {
         # Check each path until we find one that works
         for path in "${docker_paths[@]}"; do
             # shellcheck disable=SC2029
-            if ssh "${SSH_ARGS[@]}" "test -x '${path}' 2>/dev/null || command -v '${path}'" >/dev/null 2>&1; then
+            if ssh "${SSH_ARGS[@]}" "${REMOTE_ENV_VARS}test -x '${path}' 2>/dev/null || command -v '${path}'" >/dev/null 2>&1; then
                 REMOTE_DOCKER_PATH="${path}"
                 break
             fi
@@ -188,10 +196,10 @@ check_remote_docker() {
 
     # Check if we need sudo to run docker commands.
     # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_DOCKER_PATH} version" >/dev/null 2>&1; then
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} version" >/dev/null 2>&1; then
         # Check if we're not root and if sudo docker works.
         # shellcheck disable=SC2029
-        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo -n ${REMOTE_DOCKER_PATH} version" >/dev/null; then
+        if ssh "${SSH_ARGS[@]}" "[ \$(id -u) -ne 0 ] && sudo -n ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} version" >/dev/null; then
             REMOTE_SUDO="sudo -n"
         else
             error "Failed to run docker commands on remote host. Please ensure:
@@ -253,8 +261,8 @@ run_unregistry() {
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
     # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} image inspect ${UNREGISTRY_IMAGE}" >/dev/null 2>&1; then
-        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} pull ${UNREGISTRY_IMAGE}"
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} image inspect ${UNREGISTRY_IMAGE}" >/dev/null 2>&1; then
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} pull ${UNREGISTRY_IMAGE}"
     fi
 
     for _ in {1..10}; do
@@ -262,7 +270,7 @@ run_unregistry() {
         UNREGISTRY_CONTAINER="unregistry-pussh-$$-${UNREGISTRY_PORT}"
 
         # shellcheck disable=SC2029
-        if output=$(ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} run -d \
+        if output=$(ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} run -d \
             --name ${UNREGISTRY_CONTAINER} \
             -p 127.0.0.1:${UNREGISTRY_PORT}:5000 \
             -v ${REMOTE_CONTAINERD_SOCKET}:/run/containerd/containerd.sock \
@@ -275,7 +283,7 @@ run_unregistry() {
 
         # Remove the container that failed to start if it was created.
         # shellcheck disable=SC2029
-        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
         # Check if the error is due to port binding.
         if ! echo "${output}" | grep -q --ignore-case "bind"; then
             error "Failed to start unregistry container:\n${output}"
@@ -460,7 +468,7 @@ cleanup() {
     # Stop and remove unregistry container on remote host.
     if [[ -n "${UNREGISTRY_CONTAINER}" ]]; then
         # shellcheck disable=SC2029
-        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} rm -f ${UNREGISTRY_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
     # Terminate the shared SSH connection if it was established.
@@ -532,10 +540,10 @@ fi
 
 # Pull image from unregistry if remote Docker doesn't use containerd image store.
 # shellcheck disable=SC2029
-if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
+if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH} info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
     info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
     REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE}"
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  pull ${REMOTE_REGISTRY_IMAGE}"; then
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH}  pull ${REMOTE_REGISTRY_IMAGE}"; then
         error "Failed to pull image from unregistry on remote host."
     fi
     REMOTE_RETAG_IMAGE="${REMOTE_REGISTRY_IMAGE}"
@@ -544,16 +552,16 @@ fi
 # Retag the image to the original name if needed and remove the temporary tag.
 if [[ -n "${REMOTE_RETAG_IMAGE}" ]]; then
     # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  tag ${REMOTE_RETAG_IMAGE} ${IMAGE}"; then
+    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH}  tag ${REMOTE_RETAG_IMAGE} ${IMAGE}"; then
         error "Failed to retag image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
     fi
     # shellcheck disable=SC2029
-    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  rmi ${REMOTE_RETAG_IMAGE}" >/dev/null || true
+    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH}  rmi ${REMOTE_RETAG_IMAGE}" >/dev/null || true
     success "Retagged image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
 fi
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
-ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
+ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_ENV_VARS}${REMOTE_DOCKER_PATH}  rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
 
 success "Successfully pushed ${BOLD}${IMAGE}${RST} to ${BOLD}${SSH_ADDRESS}${RST}"
