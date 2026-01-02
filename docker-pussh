@@ -228,6 +228,17 @@ find_containerd_socket() {
         "/run/snap.docker/containerd/containerd.sock"
     )
 
+    # Check if the remote host is running OrbStack.
+    # OrbStack runs Docker in a lightweight VM, so the socket is not available on the macOS host filesystem
+    # but it is available inside the VM at /run/docker/containerd/containerd.sock.
+    # shellcheck disable=SC2029
+    if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info" 2>/dev/null | grep -q "OrbStack"; then
+        if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} run --rm -v /run/docker/containerd/containerd.sock:/tmp/sock alpine ls /tmp/sock" >/dev/null 2>&1; then 
+             REMOTE_CONTAINERD_SOCKET="/run/docker/containerd/containerd.sock"
+             return 0
+        fi
+    fi
+
     for socket_path in "${socket_paths[@]}"; do
         # Try without sudo first, then with sudo if REMOTE_SUDO is set
         # shellcheck disable=SC2029
@@ -317,7 +328,7 @@ is_additional_tunneling_needed() {
     # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
     local output
     output=$(docker version 2>/dev/null)
-    echo "${output}" | grep -E -q "Docker Desktop|colima" && return 0
+    echo "${output}" | grep -E -q "Docker Desktop|colima|OrbStack" && return 0
     return 1
 }
 
