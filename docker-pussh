@@ -228,6 +228,15 @@ find_containerd_socket() {
         "/run/snap.docker/containerd/containerd.sock"
     )
 
+    # Check if the remote host is running OrbStack.
+    # OrbStack runs Docker in a lightweight VM, so the socket is not available on the macOS host filesystem
+    # but it is available inside the VM at /run/docker/containerd/containerd.sock.
+    # shellcheck disable=SC2029
+    if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info" 2>/dev/null | grep -q "OrbStack"; then
+        REMOTE_CONTAINERD_SOCKET="/run/docker/containerd/containerd.sock"
+        return 0
+    fi
+
     for socket_path in "${socket_paths[@]}"; do
         # Try without sudo first, then with sudo if REMOTE_SUDO is set
         # shellcheck disable=SC2029
