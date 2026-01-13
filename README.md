@@ -154,6 +154,45 @@ with the above Linux instructions.
 docker pussh --help
 ```
 
+## Completions
+
+### Bash
+
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker-pussh-completion \
+  -o /etc/bash_completion.d/docker-pussh-completion
+
+# To be able to use it in current shell
+source /etc/bash_completion.d/docker-pussh-completion
+```
+
+### Zsh
+Add the following to your .zshrc file:
+```shell
+autoload -U +X compinit && compinit
+autoload -U +X bashcompinit && bashcompinit
+source /etc/bash_completion.d/docker-pussh-completion
+```
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker-pussh-completion \
+  -o /etc/bash_completion.d/docker-pussh-completion
+
+# To be able to use it in current shell
+source ~/.zshrc
+```
+
+### Fish
+Download the completion script
+```shell
+curl -sSL https://raw.githubusercontent.com/psviderski/unregistry/v0.2.0/completions/docker.fish \
+  -o /etc/fish/completions/
+
+# To be able to use it in current shell
+source ~/.config/fish/config.fish
+```
+
 ## ⚠️ Containerd image store configuration
 
 Unregistry stores images directly in containerd's image store, which is the underlying container runtime used by Docker.

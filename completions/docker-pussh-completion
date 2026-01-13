@@ -1,0 +1,40 @@
+_docker-pussh_completions()
+{
+    local comp_words=()
+    # filter out options and subcommand if existing, only keep arguments
+    mapfile -d $'\0' -t comp_words < <(printf '%s\0' "${COMP_WORDS[@]}" | grep -Pzv "^(-|pussh)")
+    comp_cword=$(( $COMP_CWORD - (${#COMP_WORDS[@]} - ${#comp_words[@]}) ))
+
+    case $comp_cword in
+        1)
+            COMPREPLY=($(compgen -W "$(docker image ls --format '{{.Repository}}:{{.Tag}}' | tr '\n' ' ')" -- "${comp_words[$comp_cword]}"))
+        ;;
+        2)
+            local ssh_config=($(compgen -W "$(awk '/^Host / {print $2}' ~/.ssh/config ~/.ssh/config.d/* 2>/dev/null | tr '\n' ' ')" -- "${comp_words[$comp_cword]}"))
+            local known_hosts=($(compgen -W "$(awk '{ gsub(/\[|\]/,""); print $1 }' ~/.ssh/known_hosts 2>/dev/null | tr '\n' ' ')" -- "${comp_words[$comp_cword]}"))
+            COMPREPLY=("${ssh_config[@]}" "${known_hosts[@]}")
+        ;;
+        *)
+        return
+        ;;
+    esac
+}
+
+_docker_pussh_subcommand_completions()
+{
+    local comp_words=()
+    # filter out options, only keep arguments
+    mapfile -d $'\0' -t comp_words < <(printf '%s\0' "${COMP_WORDS[@]}" | grep -Pzv "^-")
+
+    case ${comp_words[1]} in
+        pussh)
+            _docker-pussh_completions
+        ;;
+        *)
+            __start_docker
+        ;;
+    esac
+}
+
+complete -F _docker-pussh_completions docker-pussh
+complete -F _docker_pussh_subcommand_completions docker
