@@ -511,6 +511,10 @@ DOCKER_PUSH_OPTS=()
 if [[ -n "${DOCKER_PLATFORM}" ]]; then
     DOCKER_PUSH_OPTS+=("--platform" "${DOCKER_PLATFORM}")
 fi
+# If docker on the host is podman emulating docker then force it to push using http
+if docker -v | grep -q --ignore-case "podman"; then
+    DOCKER_PUSH_OPTS+=("--tls-verify=false")
+fi
 
 # Try push with retry logic for connection issues
 PUSH_RETRY_COUNT=3
