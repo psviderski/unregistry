@@ -321,32 +321,42 @@ forward_port() {
     error "Failed to find an available local port to forward to remote unregistry port. Please try again."
 }
 
-# Check if the local Docker server needs additional tunneling.
-is_additional_tunneling_needed() {
-    # Read all output to a variable to avoid issues with pipefail when 'grep -q' exits early.
-    local output
-    output=$(docker version 2>/dev/null)
-    echo "${output}" | grep -E -q "Docker Desktop|colima" && return 0
+# Check if the local Docker server needs a proxy when running in a VM (Docker/Rancher Desktop, Colima, etc.).
+is_docker_vm_proxy_needed() {
+    local info
+    info=$(docker info 2>/dev/null)
+
+    # macOS almost always needs a proxy for local Docker running in a VM.
+    # However it's known that OrbStack works without it.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        [[ "${info}" =~ OrbStack ]] && return 1
+        return 0
+    fi
+
+    # Fallback: detect Docker Desktop, Rancher Desktop, and Colima on Linux.
+    [[ "${info}" =~ Docker\ Desktop|rancher-desktop|colima ]] && return 0
     return 1
 }
 
-# Container name for the Docker Desktop tunnel. It's populated by run_docker_desktop_tunnel function.
-DOCKER_DESKTOP_TUNNEL_CONTAINER=""
-# Port on localhost that docker in Docker Desktop should push to. It's populated by run_docker_desktop_tunnel function.
-DOCKER_DESKTOP_TUNNEL_PORT=""
+# Container name for the Docker VM proxy. It's populated by run_docker_vm_proxy function.
+DOCKER_VM_PROXY_CONTAINER=""
+# Port on localhost that Docker in a VM (Docker/Rancher Desktop, Colima, etc.) should push to.
+# It's populated by run_docker_vm_proxy function.
+DOCKER_VM_PROXY_PORT=""
 
-# Run a socat tunnel container for pushing images from Docker Desktop VM to the forwarded port on the host.
-run_docker_desktop_tunnel() {
+# Run a socat proxy container for pushing images from Docker in a VM (Docker/Rancher Desktop, Colima, etc.)
+# to the forwarded port on the host.
+run_docker_vm_proxy() {
     local host_port="$1"
     local output
 
-    DOCKER_DESKTOP_TUNNEL_CONTAINER="docker-pussh-tunnel-$$"
+    DOCKER_VM_PROXY_CONTAINER="docker-pussh-proxy-$$"
     for _ in {1..10}; do
-        DOCKER_DESKTOP_TUNNEL_PORT=$(random_port)
+        DOCKER_VM_PROXY_PORT=$(random_port)
 
         if output=$(docker run -d --rm \
-            --name "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" \
-            -p "127.0.0.1:${DOCKER_DESKTOP_TUNNEL_PORT}:5000" \
+            --name "${DOCKER_VM_PROXY_CONTAINER}" \
+            -p "127.0.0.1:${DOCKER_VM_PROXY_PORT}:5000" \
             alpine/socat \
             TCP-LISTEN:5000,fork,reuseaddr \
             "TCP-CONNECT:host.docker.internal:${host_port}" 2>&1);
@@ -355,14 +365,14 @@ run_docker_desktop_tunnel() {
         fi
 
         # Remove the container that failed to start if it was created.
-        docker rm -f "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" >/dev/null 2>&1 || true
+        docker rm -f "${DOCKER_VM_PROXY_CONTAINER}" >/dev/null 2>&1 || true
         # Check if error is due to port binding.
-        if ! echo "${output}" | grep -q --ignore-case "bind.*${DOCKER_DESKTOP_TUNNEL_PORT}"; then
-            error "Failed to create a tunnel from Docker Desktop VM to localhost:${host_port}:\n${output}"
+        if ! echo "${output}" | grep -q --ignore-case "bind.*${DOCKER_VM_PROXY_PORT}"; then
+            error "Failed to run a proxy from Docker VM to localhost:${host_port}:\n${output}"
         fi
     done
 
-    error "Failed to create a tunnel from Docker Desktop VM to localhost:${host_port}:\n${output}"
+    error "Failed to run a proxy from Docker VM to localhost:${host_port}:\n${output}"
 }
 
 DOCKER_PLATFORM=""
@@ -456,9 +466,9 @@ cleanup() {
         warning "Cleaning up after error..."
     fi
 
-    # Remove Docker Desktop tunnel container if exists.
-    if [[ -n "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" ]]; then
-        docker rm -f "${DOCKER_DESKTOP_TUNNEL_CONTAINER}" >/dev/null 2>&1 || true
+    # Remove Docker VM proxy container if exists.
+    if [[ -n "${DOCKER_VM_PROXY_CONTAINER}" ]]; then
+        docker rm -f "${DOCKER_VM_PROXY_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
     # Clean up the temporary registry image tag.
@@ -492,13 +502,13 @@ LOCAL_PORT=$(forward_port "${UNREGISTRY_PORT}")
 success "Forwarded localhost:${LOCAL_PORT} to unregistry over SSH connection."
 
 PUSH_PORT=${LOCAL_PORT}
-# Handle virtualized Docker on macOS (e.g., Docker Desktop, Colima, etc.)
+# Handle virtualised Docker on macOS (e.g., Docker/Rancher Desktop, Colima, etc.)
 # shellcheck disable=SC2310
-if is_additional_tunneling_needed; then
-    info "Detected virtualised Docker locally, creating additional tunnel to localhost:${LOCAL_PORT}..."
-    run_docker_desktop_tunnel "${LOCAL_PORT}"
-    PUSH_PORT=${DOCKER_DESKTOP_TUNNEL_PORT}
-    success "Additional tunnel created: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
+if is_docker_vm_proxy_needed; then
+    info "Detected virtualised Docker locally, running proxy to localhost:${LOCAL_PORT}..."
+    run_docker_vm_proxy "${LOCAL_PORT}"
+    PUSH_PORT=${DOCKER_VM_PROXY_PORT}
+    success "Proxy running: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
 fi
 
 REMOTE_IMAGE=$(normalise_registry_port "${IMAGE}")
