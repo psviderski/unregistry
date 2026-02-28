@@ -16,6 +16,9 @@ import (
 // tagService implements distribution.TagService backed by the containerd image store.
 type tagService struct {
 	client *client.Client
+	// repo is the repository reference as provided by the distribution handler. Used to find upload leases
+	// labeled with the repository name.
+	repo reference.Named
 	// canonicalRepo is the repository reference in a normalized form, the way containerd image store expects it,
 	// for example, "docker.io/library/ubuntu"
 	canonicalRepo reference.Named
@@ -72,11 +75,6 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 	// deleted by GC once the leases that uploaded the content are expired or deleted.
 	// See for more details:
 	// https://github.com/containerd/containerd/blob/main/docs/garbage-collection.md#garbage-collection-labels
-	//
-	// TODO: delete unnecessary leases after setting the GC labels. It seems to be non-trivial to do so, because we need
-	//  to keep track of which leases were used to upload which content and share this info between
-	//  the blobStore/blobWriter and tagService. The downside of keeping them around is the image content will be kept
-	//  in the store even if the image is deleted, until the leases expire (default is leaseExpiration).
 
 	contentStore := t.client.ContentStore()
 	// Get all the children descriptors (manifests, config, layers) for an image index or manifest.
@@ -112,6 +110,22 @@ func (t *tagService) Tag(ctx context.Context, tag string, desc distribution.Desc
 		log.Debug("Updated existing image in containerd image store.")
 	} else {
 		log.Debug("Created new image in containerd image store.")
+	}
+
+	// Now that the image is created and GC labels protect its content, the upload leases are no longer needed.
+	// Delete them so that content can be properly garbage collected when the image is removed (e.g. via docker image rm).
+	leaseManager := t.client.LeasesService()
+	uploadLeases, err := leaseManager.List(ctx, fmt.Sprintf("labels.%q==%s", leaseLabel, t.repo.Name()))
+	if err != nil {
+		log.WithError(err).Warn("Failed to list upload leases.")
+	}
+	for _, l := range uploadLeases {
+		if err = leaseManager.Delete(ctx, l); err != nil {
+			log.WithError(err).WithField("lease", l.ID).Warn("Failed to delete upload lease.")
+		}
+	}
+	if len(uploadLeases) > 0 {
+		log.WithField("count", len(uploadLeases)).Debug("Deleted upload leases after setting GC labels.")
 	}
 
 	return nil
