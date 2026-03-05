@@ -554,7 +554,7 @@ if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} pull ${REMOTE_RE
     error "Failed to pull image from unregistry on remote host."
 fi
 
-# Retag the image to the original name if needed and remove the temporary tag.
+# Retag the image to the original name and remove the temporary tag.
 # shellcheck disable=SC2029
 if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  tag ${REMOTE_REGISTRY_IMAGE} ${IMAGE}"; then
 	error "Failed to retag image on remote host ${REMOTE_REGISTRY_IMAGE} → ${IMAGE}"
