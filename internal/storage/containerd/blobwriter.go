@@ -19,6 +19,7 @@ import (
 )
 
 const leaseExpiration = 1 * time.Hour
+const leaseLabel = "unregistry/upload.repo"
 
 // blobWriter is a resumable blob uploader to the containerd content store.
 // Implements distribution.BlobWriter.
@@ -27,11 +28,10 @@ type blobWriter struct {
 	repo   reference.Named
 	id     string
 
-	// lease is a containerd lease for writer that prevents garbage collection of the content. It's intentionally not
-	// deleted on successful blob commit to keep it while the registry is uploading other blobs and manifests and
-	// creating an image referencing them. Otherwise, the blob would be garbage collected immediately after lease is
-	// deleted if the blob is not referenced by an image.
-	// In the worst case, the lease and unreferenced blob will be garbage collected after leaseExpiration.
+	// lease is a containerd lease for writer that prevents garbage collection of the content while the registry
+	// is uploading other blobs and manifests. The lease is labeled with the repository name so that tagService.Tag
+	// can find and delete all upload leases after GC labels are set on the image content. If the image is never
+	// tagged, the lease expires after leaseExpiration.
 	lease  leases.Lease
 	writer content.Writer
 	// size is the total number of bytes written to writer.
@@ -46,10 +46,12 @@ func newBlobWriter(
 		id = uuid.NewString()
 	}
 
-	// Create a containerd lease to prevent garbage collection.
+	// Create a containerd lease to prevent garbage collection. The lease is labeled with the repository name
+	// so that tagService.Tag can find and delete all upload leases after GC labels are set.
 	opts := []leases.Opt{
 		leases.WithRandomID(),
 		leases.WithExpiration(leaseExpiration),
+		leases.WithLabels(map[string]string{leaseLabel: repo.Name()}),
 	}
 	lease, err := client.LeasesService().Create(ctx, opts...)
 	if err != nil {

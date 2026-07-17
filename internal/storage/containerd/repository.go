@@ -54,6 +54,7 @@ func (r *repository) Tags(_ context.Context) distribution.TagService {
 	canonicalRepo, _ := reference.ParseNormalizedNamed(r.name.String())
 	return &tagService{
 		client:        r.client,
+		repo:          r.name,
 		canonicalRepo: canonicalRepo,
 	}
 }
