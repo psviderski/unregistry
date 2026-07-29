@@ -34,6 +34,9 @@ DEFAULT_CONTAINERD_SOCK="/run/containerd/containerd.sock"
 # Containerd socket path on remote host. It's populated by find_containerd_socket function.
 # Can be overridden by setting REMOTE_CONTAINERD_SOCKET environment variable.
 REMOTE_CONTAINERD_SOCKET=${REMOTE_CONTAINERD_SOCKET:-"${DEFAULT_CONTAINERD_SOCK}"}
+# Containerd namespace for unregistry image storage. Populated by detect_containerd_namespace.
+# Defaults to "moby" but changes to "moby-<UID.GID>" when Docker uses userns-remap.
+CONTAINERD_NAMESPACE=${UNREGISTRY_CONTAINERD_NAMESPACE:-"moby"}
 # SSH strict host key checking mode. Can be set to "yes", "no", "ask", or "accept-new".
 # Default is to use the SSH client's default behavior.
 SSH_STRICT_HOST_KEY_CHECKING=${SSH_STRICT_HOST_KEY_CHECKING:-}
@@ -82,6 +85,8 @@ usage() {
     echo "Environment variables:"
     echo "  REMOTE_DOCKER_PATH        Path to docker binary on remote host (default: auto-detected)."
     echo "  REMOTE_CONTAINERD_SOCKET  Path to containerd socket on remote host (default: auto-detected)."
+    echo "  UNREGISTRY_CONTAINERD_NAMESPACE"
+    echo "                            Containerd namespace for image storage (default: auto-detected from Docker Root Dir)."
     echo "  UNREGISTRY_IMAGE          Unregistry image to use on remote host (default: ${UNREGISTRY_IMAGE})."
     echo ""
     echo "Examples:"
@@ -257,13 +262,39 @@ find_containerd_socket() {
     # This ensures we don't introduce a regression for users who had working setups.
 }
 
+# Detect the containerd namespace Docker uses on the remote host.
+# When userns-remap is enabled, Docker stores data under /var/lib/docker/<UID.GID> and uses
+# the containerd namespace "moby-<UID.GID>" instead of the default "moby".
+detect_containerd_namespace() {
+    # Skip if the user explicitly set the namespace via environment variable.
+    if [[ -n "${UNREGISTRY_CONTAINERD_NAMESPACE:-}" ]]; then
+        CONTAINERD_NAMESPACE="${UNREGISTRY_CONTAINERD_NAMESPACE}"
+        return 0
+    fi
+
+    local docker_root
+    # shellcheck disable=SC2029
+    docker_root=$(ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info --format '{{.DockerRootDir}}'" 2>/dev/null) || return 0
+
+    local nsdir
+    nsdir=$(basename "${docker_root}")
+
+    # When userns-remap is active, Docker Root Dir ends with a UID.GID component
+    # (e.g. /var/lib/docker/100000.100000) and containerd uses namespace "moby-100000.100000".
+    if [[ "${nsdir}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        CONTAINERD_NAMESPACE="moby-${nsdir}"
+        info "Detected userns-remap namespace: ${CONTAINERD_NAMESPACE}"
+    fi
+}
+
 # Run unregistry container on remote host with retry logic for port binding conflicts.
 # Sets UNREGISTRY_PORT and UNREGISTRY_CONTAINER global variables.
 run_unregistry() {
     local output
 
-    # Find containerd socket first
+    # Find containerd socket and detect namespace
     find_containerd_socket
+    detect_containerd_namespace
 
     # Pull unregistry image if it doesn't exist on the remote host. This is done separately to not capture the output
     # and print the pull progress to the terminal.
@@ -283,6 +314,7 @@ run_unregistry() {
             -v ${REMOTE_CONTAINERD_SOCKET}:/run/containerd/containerd.sock \
             --userns=host \
             --user root:root \
+            -e UNREGISTRY_CONTAINERD_NAMESPACE=${CONTAINERD_NAMESPACE} \
             ${UNREGISTRY_IMAGE}" 2>&1);
         then
             return 0
