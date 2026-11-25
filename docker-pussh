@@ -67,9 +67,12 @@ error() {
 }
 
 usage() {
-    echo "Usage: docker pussh [OPTIONS] IMAGE[:TAG] [USER@]HOST[:PORT]"
+    echo "Usage: docker pussh [OPTIONS] IMAGE[:TAG]... [USER@]HOST[:PORT]"
     echo ""
-    echo "Upload a Docker image to a remote Docker daemon via SSH without an external registry."
+    echo "Upload one or more Docker images to a remote Docker daemon via SSH without an external registry."
+    echo "All images are sent over a single SSH connection and a single temporary unregistry container."
+    echo "Images are checked locally first, then pushed one by one in the given order (duplicates are skipped)."
+    echo "If a push fails, the remaining images are not pushed and the ones already pushed stay on the remote host."
     echo ""
     echo "Options:"
     echo "  -h, --help                Show this help message."
@@ -86,6 +89,7 @@ usage() {
     echo ""
     echo "Examples:"
     echo "  docker pussh myimage:latest user@host"
+    echo "  docker pussh myimage:latest otherimage:1.2 user@host"
     echo "  docker pussh --platform linux/amd64 myimage host"
     echo "  docker pussh myimage:1.2.3 user@host:2222 -i ~/.ssh/id_ed25519"
     echo "  docker pussh --ssh-config ~/.ssh/config.prod myimage:latest prod-server"
@@ -382,11 +386,28 @@ run_docker_vm_proxy() {
     error "Failed to run a proxy from Docker VM to localhost:${host_port}:\n${output}"
 }
 
+# Succeeds when the first argument equals one of the remaining arguments.
+array_contains() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do
+        if [[ "${item}" == "${needle}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 DOCKER_PLATFORM=""
 SSH_CONFIG=""
 SSH_KEY=""
-IMAGE=""
+# Positional arguments as given: IMAGE[:TAG]... followed by the SSH address.
+POSITIONAL=()
+# Images to push, without duplicates, in the order they were given.
+IMAGES=()
 SSH_ADDRESS=""
+# Temporary tags in the local loopback registry namespace, one per pushed image. Removed on exit.
+REGISTRY_IMAGES=()
 
 # Skip 'pussh' if called as Docker CLI plugin.
 if [[ "${1:-}" = "pussh" ]]; then
@@ -435,24 +456,26 @@ while [[ $# -gt 0 ]]; do
             error "Unknown option: $1\n${help_command}"
             ;;
         *)
-            # First non-option argument is the image.
-            if [[ -z "${IMAGE}" ]]; then
-                IMAGE="$1"
-            # Second non-option argument is the SSH address.
-            elif [[ -z "${SSH_ADDRESS}" ]]; then
-                SSH_ADDRESS="$1"
-            else
-                error "Too many arguments.\n${help_command}"
-            fi
+            # Every non-option argument is collected; the last one is the SSH address.
+            POSITIONAL+=("$1")
             shift
             ;;
     esac
 done
 
-# Validate required arguments.
-if [[ -z "${IMAGE}" ]] || [[ -z "${SSH_ADDRESS}" ]]; then
+# Validate required arguments: at least one image followed by the host.
+if [[ ${#POSITIONAL[@]} -lt 2 ]]; then
     error "IMAGE and HOST are required.\n${help_command}"
 fi
+POSITIONAL_COUNT=${#POSITIONAL[@]}
+SSH_ADDRESS="${POSITIONAL[$((POSITIONAL_COUNT - 1))]}"
+for image in "${POSITIONAL[@]:0:$((POSITIONAL_COUNT - 1))}"; do
+    # shellcheck disable=SC2310
+    if ! array_contains "${image}" ${IMAGES[@]+"${IMAGES[@]}"}; then
+        IMAGES+=("${image}")
+    fi
+done
+
 # Validate SSH key file exists if provided.
 if [[ -n "${SSH_KEY}" ]] && [[ ! -f "${SSH_KEY}" ]]; then
     error "SSH key file not found: ${SSH_KEY}"
@@ -460,6 +483,25 @@ fi
 if [[ -n "${SSH_CONFIG}" ]] && [[ ! -f "${SSH_CONFIG}" ]]; then
     error "SSH config file not found: ${SSH_CONFIG}"
 fi
+
+# Make sure every image exists in the local Docker before connecting to the host. With several images a typo, or an
+# extra argument that is taken for an image (e.g. two hosts), would otherwise fail only after the images before it
+# have already been pushed.
+check_local_images() {
+    local image
+    local -a missing=()
+
+    for image in "$@"; do
+        if ! docker image inspect "${image}" >/dev/null 2>&1; then
+            missing+=("${image}")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "Image not found in the local Docker: ${missing[*]}\nCheck the image names and that the last argument is the SSH address."
+    fi
+}
+check_local_images "${IMAGES[@]}"
 
 # Replace colon in the registry part of the image name with dash to make it a valid Docker image name component.
 # For example, "localhost:5000/myimage" -> "localhost-5000/myimage"
@@ -476,6 +518,71 @@ normalise_registry_port() {
     fi
 }
 
+# Push one image through the forwarded registry port and make it available on the remote Docker under its own name.
+# Requires the SSH connection, the unregistry container and PUSH_PORT to be set up already.
+push_one_image() {
+    local image="$1"
+    local remote_image registry_image attempt retag_source pushed
+    local -a push_opts=()
+
+    remote_image=$(normalise_registry_port "${image}")
+    # Tag and push the image to unregistry through the forwarded port.
+    registry_image="localhost:${PUSH_PORT}/${remote_image}"
+    docker tag "${image}" "${registry_image}"
+    REGISTRY_IMAGES+=("${registry_image}")
+
+    if [[ -n "${DOCKER_PLATFORM}" ]]; then
+        push_opts+=("--platform" "${DOCKER_PLATFORM}")
+    fi
+
+    info "Pushing ${registry_image} to unregistry..."
+    pushed=false
+    # Try push with retry logic for connection issues
+    for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
+        # That push_opts expansion is needed to avoid issues with empty array expansion in older bash versions.
+        if docker push ${push_opts[@]+"${push_opts[@]}"} "${registry_image}"; then
+            pushed=true
+            break
+        fi
+        if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
+            warning "Push attempt ${attempt} failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
+            sleep "${PUSH_SLEEP_INTERVAL}"
+        fi
+    done
+
+    if [[ "${pushed}" = false ]]; then
+        error "Failed to push image after ${PUSH_RETRY_COUNT} attempts: ${image}"
+    fi
+
+    # With the containerd image store unregistry keeps the image under remote_image, so it only needs a retag to the
+    # original name when the two differ. Otherwise the remote Docker pulls the image from unregistry first.
+    retag_source=""
+    if [[ "${remote_image}" != "${image}" ]]; then
+        retag_source="${remote_image}"
+    fi
+    if [[ "${REMOTE_USES_CONTAINERD_STORE}" != true ]]; then
+        info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
+        retag_source="localhost:${UNREGISTRY_PORT}/${remote_image}"
+        # shellcheck disable=SC2029
+        if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  pull ${retag_source}"; then
+            error "Failed to pull image from unregistry on remote host."
+        fi
+    fi
+
+    # Retag the image to the original name if needed and remove the temporary tag.
+    if [[ -n "${retag_source}" ]]; then
+        # shellcheck disable=SC2029
+        if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  tag ${retag_source} ${image}"; then
+            error "Failed to retag image on remote host ${retag_source} → ${image}"
+        fi
+        # shellcheck disable=SC2029
+        ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  rmi ${retag_source}" >/dev/null || true
+        success "Retagged image on remote host ${retag_source} → ${image}"
+    fi
+
+    success "Successfully pushed ${BOLD}${image}${RST} to ${BOLD}${SSH_ADDRESS}${RST}"
+}
+
 # Clean up resources on exit, including on errors. Uses global variables to determine what needs to be cleaned up.
 cleanup() {
     local exit_code=$?
@@ -489,10 +596,10 @@ cleanup() {
         docker rm -f "${DOCKER_VM_PROXY_CONTAINER}" >/dev/null 2>&1 || true
     fi
 
-    # Clean up the temporary registry image tag.
-    if [[ -n "${REGISTRY_IMAGE:-}" ]]; then
-        docker rmi "${REGISTRY_IMAGE}" >/dev/null 2>&1 || true
-    fi
+    # Clean up the temporary registry image tags.
+    for registry_image in ${REGISTRY_IMAGES[@]+"${REGISTRY_IMAGES[@]}"}; do
+        docker rmi "${registry_image}" >/dev/null 2>&1 || true
+    done
 
     # Stop and remove unregistry container on remote host.
     if [[ -n "${UNREGISTRY_CONTAINER}" ]]; then
@@ -529,68 +636,20 @@ if is_docker_vm_proxy_needed; then
     success "Proxy running: localhost:${PUSH_PORT} → localhost:${LOCAL_PORT}"
 fi
 
-REMOTE_IMAGE=$(normalise_registry_port "${IMAGE}")
-# Tag and push the image to unregistry through the forwarded port.
-REGISTRY_IMAGE="localhost:${PUSH_PORT}/${REMOTE_IMAGE}"
-docker tag "${IMAGE}" "${REGISTRY_IMAGE}"
-info "Pushing ${REGISTRY_IMAGE} to unregistry..."
-
-DOCKER_PUSH_OPTS=()
-if [[ -n "${DOCKER_PLATFORM}" ]]; then
-    DOCKER_PUSH_OPTS+=("--platform" "${DOCKER_PLATFORM}")
+# Whether the remote Docker keeps images in the containerd image store. Checked once for all images.
+REMOTE_USES_CONTAINERD_STORE=false
+# shellcheck disable=SC2029
+if ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
+    REMOTE_USES_CONTAINERD_STORE=true
 fi
 
-# Try push with retry logic for connection issues
 PUSH_RETRY_COUNT=3
-PUSH_SUCCESS=false
 PUSH_SLEEP_INTERVAL=3
 
-for attempt in $(seq 1 "${PUSH_RETRY_COUNT}"); do
-    # That DOCKER_PUSH_OPTS expansion is needed to avoid issues with empty array expansion in older bash versions.
-    if docker push ${DOCKER_PUSH_OPTS[@]+"${DOCKER_PUSH_OPTS[@]}"} "${REGISTRY_IMAGE}"; then
-        PUSH_SUCCESS=true
-        break
-    else
-        if [[ "${attempt}" -lt "${PUSH_RETRY_COUNT}" ]]; then
-            warning "Push attempt ${attempt} failed, retrying in ${PUSH_SLEEP_INTERVAL} seconds..."
-            sleep "${PUSH_SLEEP_INTERVAL}"
-        fi
-    fi
+for image in "${IMAGES[@]}"; do
+    push_one_image "${image}"
 done
-
-if [[ "${PUSH_SUCCESS}" = false ]]; then
-    error "Failed to push image after ${PUSH_RETRY_COUNT} attempts."
-fi
-
-REMOTE_RETAG_IMAGE=""
-if [[ "${REMOTE_IMAGE}" != "${IMAGE}" ]]; then
-    REMOTE_RETAG_IMAGE="${REMOTE_IMAGE}"
-fi
-
-# Pull image from unregistry if remote Docker doesn't use containerd image store.
-# shellcheck disable=SC2029
-if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} info -f '{{ .DriverStatus }}' | grep -q 'containerd.snapshotter'"; then
-    info "Remote Docker doesn't use containerd image store. Pulling image from unregistry..."
-    REMOTE_REGISTRY_IMAGE="localhost:${UNREGISTRY_PORT}/${REMOTE_IMAGE}"
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  pull ${REMOTE_REGISTRY_IMAGE}"; then
-        error "Failed to pull image from unregistry on remote host."
-    fi
-    REMOTE_RETAG_IMAGE="${REMOTE_REGISTRY_IMAGE}"
-fi
-
-# Retag the image to the original name if needed and remove the temporary tag.
-if [[ -n "${REMOTE_RETAG_IMAGE}" ]]; then
-    # shellcheck disable=SC2029
-    if ! ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  tag ${REMOTE_RETAG_IMAGE} ${IMAGE}"; then
-        error "Failed to retag image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
-    fi
-    # shellcheck disable=SC2029
-    ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  rmi ${REMOTE_RETAG_IMAGE}" >/dev/null || true
-    success "Retagged image on remote host ${REMOTE_RETAG_IMAGE} → ${IMAGE}"
-fi
 
 info "Removing unregistry container on remote host..."
 # shellcheck disable=SC2029
 ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH}  rm -f ${UNREGISTRY_CONTAINER}" >/dev/null || true
-
-success "Successfully pushed ${BOLD}${IMAGE}${RST} to ${BOLD}${SSH_ADDRESS}${RST}"
