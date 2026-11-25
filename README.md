@@ -200,6 +200,18 @@ password prompt.
 docker pussh myapp:latest user@server.example.com
 ```
 
+Several images can be pushed in one run. The last argument is always the server, and all images share one SSH
+connection and one temporary unregistry container on the server:
+
+```shell
+docker pussh myapp:latest worker:1.4.2 web:1.4.2 user@server.example.com
+```
+
+All images are checked in your local Docker before connecting to the server, so a mistyped image name or an extra
+argument fails the command before anything is pushed. Images are then pushed one by one in the given order and
+duplicates are skipped. If a push fails, the remaining images are not pushed, and the images that were already pushed
+stay on the server.
+
 With SSH key authentication if the private key is not added to your SSH agent:
 
 ```shell
