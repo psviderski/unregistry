@@ -345,6 +345,16 @@ is_docker_vm_proxy_needed() {
     return 1
 }
 
+# Whether the local Docker daemon runs rootless. Its containers and the daemon itself run in a network namespace where
+# the host's localhost is not reachable (slirp4netns runs with --disable-host-loopback), so the daemon cannot push to the
+# forwarded registry port.
+is_local_docker_rootless() {
+    local security
+
+    security=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null || true)
+    [[ "${security}" == *"name=rootless"* ]]
+}
+
 # Container name for the Docker VM proxy. It's populated by run_docker_vm_proxy function.
 DOCKER_VM_PROXY_CONTAINER=""
 # Port on localhost that Docker in a VM (Docker/Rancher Desktop, Colima, etc.) should push to.
@@ -507,9 +517,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Stream the image to the remote Docker with docker save and docker load over the shared SSH connection. Used when the
+# local daemon is rootless, because it cannot reach the registry port that unregistry is forwarded to.
+# Layers are not deduplicated against the remote Docker in this mode.
+push_images_over_ssh() {
+    local -a save_opts=()
+
+    if [[ -n "${DOCKER_PLATFORM}" ]]; then
+        save_opts+=("--platform" "${DOCKER_PLATFORM}")
+    fi
+
+    info "Streaming ${IMAGE} to ${SSH_ADDRESS} with docker save and docker load..."
+    # shellcheck disable=SC2029
+    if ! docker save ${save_opts[@]+"${save_opts[@]}"} "${IMAGE}" \
+        | ssh "${SSH_ARGS[@]}" "${REMOTE_SUDO} ${REMOTE_DOCKER_PATH} load"; then
+        error "Failed to stream ${IMAGE} to the remote host with docker save and docker load."
+    fi
+}
+
 info "Connecting to ${SSH_ADDRESS}..."
 ssh_remote "${SSH_ADDRESS}"
 check_remote_docker
+
+# shellcheck disable=SC2310
+if is_local_docker_rootless; then
+    info "Local Docker is rootless and cannot reach the forwarded registry port. Using docker save and load instead."
+    push_images_over_ssh
+    success "Successfully pushed ${BOLD}${IMAGE}${RST} to ${BOLD}${SSH_ADDRESS}${RST}"
+    exit 0
+fi
 
 info "Starting unregistry container on remote host..."
 run_unregistry

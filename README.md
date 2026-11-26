@@ -206,6 +206,10 @@ With SSH key authentication if the private key is not added to your SSH agent:
 docker pussh myapp:latest ubuntu@192.168.1.100 -i ~/.ssh/id_rsa
 ```
 
+If the local Docker runs in rootless mode, the temporary registry cannot be used because the daemon cannot reach the
+forwarded port on the host. In that case the image is streamed with `docker save` and `docker load` over the same SSH
+connection, and no unregistry container is started. The layers are sent in full, without deduplication.
+
 Using a custom SSH port:
 
 ```shell
